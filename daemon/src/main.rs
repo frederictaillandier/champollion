@@ -1,10 +1,6 @@
-mod ocr;
-mod recorder;
-mod screencast;
-mod steam;
-mod text;
+mod extract;
+mod record;
 mod tray;
-mod window;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,8 +12,7 @@ use clap::Parser;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use tracing_subscriber::EnvFilter;
 
-use screencast::ScreenCast;
-use recorder::{Recorder, Settings};
+use record::{Recording, Settings, steam, window};
 use tray::{Command, State, Tray};
 
 /// Kingdom Come: Deliverance II.
@@ -107,57 +102,6 @@ fn wait_for_command(
     None
 }
 
-/// A screencast being recorded.
-struct Recording {
-    cast: ScreenCast,
-    recorder: Recorder,
-    since: Instant,
-}
-
-impl Recording {
-    fn start(
-        rt: &tokio::runtime::Runtime,
-        game: &steam::Game,
-        output_dir: &std::path::Path,
-        settings: &Settings,
-    ) -> Result<Self, String> {
-        let cast = rt
-            .block_on(ScreenCast::open())
-            .map_err(|e| format!("could not share the screen: {e}"))?;
-        let now = chrono::Local::now();
-        let prefix = output_dir
-            .join(game.slug())
-            .join(now.format("%Y-%m-%d").to_string())
-            .join(now.format("%H-%M-%S").to_string());
-        match Recorder::start(&cast, &prefix, settings) {
-            Ok(recorder) => {
-                tracing::info!("recording {:?} to {}_NNN.mkv", cast.size, prefix.display());
-                Ok(Self {
-                    cast,
-                    recorder,
-                    since: Instant::now(),
-                })
-            }
-            Err(e) => {
-                rt.block_on(cast.close());
-                Err(format!("could not start recording: {e}"))
-            }
-        }
-    }
-
-    /// Ends the recording; `finish` waits for the current file to be
-    /// finalized, which is pointless once the pipeline has failed.
-    fn stop(self, rt: &tokio::runtime::Runtime, finish: bool) {
-        if finish {
-            self.recorder.stop();
-        } else {
-            drop(self.recorder);
-        }
-        rt.block_on(self.cast.close());
-        tracing::info!("recording stopped");
-    }
-}
-
 /// Environment variables read by libraries when they are loaded, before
 /// `main` runs, so they can only be set by restarting the process.
 const LOAD_TIME_ENV: [(&str, &str); 2] = [
@@ -235,13 +179,13 @@ fn main() {
     );
 
     let indexer = (!args.no_ocr).then(|| {
-        text::Indexer::spawn(
-            text::Config {
+        extract::Indexer::spawn(
+            extract::Config {
                 recordings_dir: output_dir.clone(),
                 text_dir: text_dir.clone(),
                 samples_per_second: args.ocr_fps,
                 workers: args.ocr_workers.max(1),
-                ocr: ocr::Ocr {
+                ocr: extract::Ocr {
                     lang: args.ocr_lang.clone(),
                     min_confidence: args.ocr_min_confidence,
                 },
@@ -295,7 +239,7 @@ fn main() {
                     }
                 );
                 recording.take().unwrap().stop(&rt, true);
-            } else if let Some(reason) = rec.recorder.failure() {
+            } else if let Some(reason) = rec.failure() {
                 tracing::error!("recording failed: {reason}");
                 recording.take().unwrap().stop(&rt, false);
                 failure = Some(reason);

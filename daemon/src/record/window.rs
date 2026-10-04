@@ -10,7 +10,7 @@ use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{Atom, AtomEnum, ConnectionExt, Window};
 use x11rb::rust_connection::RustConnection;
 
-use crate::steam::Game;
+use super::steam::Game;
 
 pub struct Windows {
     x11: Option<X11>,

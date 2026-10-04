@@ -1,5 +1,7 @@
 //! Reads the text in finished recordings while the game is not running.
 
+mod ocr;
+
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -16,7 +18,8 @@ use gstreamer_app::AppSink;
 use image::{RgbImage, imageops};
 use serde::Serialize;
 
-use crate::ocr::{Ocr, Reader, Word};
+pub use ocr::Ocr;
+use ocr::{Reader, Word};
 
 pub struct Config {
     pub recordings_dir: PathBuf,

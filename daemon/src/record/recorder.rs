@@ -4,7 +4,7 @@ use std::path::Path;
 use gstreamer as gst;
 use gstreamer::prelude::*;
 
-use crate::screencast::ScreenCast;
+use super::screencast::ScreenCast;
 
 pub struct Settings {
     pub framerate: u32,
