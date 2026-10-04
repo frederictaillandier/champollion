@@ -23,6 +23,8 @@ Ratings and flags are sent by WorkManager as soon as the backend is
 reachable, and every 30 minutes; the next session is downloaded once this one
 is done. "Again" shows a card again 10 minutes later
 in the session; the backend schedules the rest when it gets the ratings.
+Long-press the app icon → Reload cards to replace the session's cards by a
+new download (e.g. after their definitions were made again).
 
 Needs the Android SDK in `~/Android/Sdk` (or `ANDROID_HOME`) and a JDK 17+
 for Gradle (Android Studio's own works: `org.gradle.java.home` in
@@ -116,7 +118,8 @@ minute, and sends them to the backend. It asks Claude, through the Claude
 Code CLI in headless mode (`claude -p`, with its login, no tools nor
 settings, thinking off), about 40 words at a time with their sentences: their
 dictionary form (`králem` → `král`), part of speech and gender, English
-translation, meaning in that sentence (slang included) and the sentence's
+translation, meaning in that sentence (slang included; of the dictionary
+form, without the grammar of the form read) and the sentence's
 translation, and whether to keep them at all (not English UI text, OCR
 garbage, names or numbers). Sonnet takes about 20 seconds per batch and
 understands the context much better than Haiku.
@@ -153,7 +156,7 @@ reach it are WireGuard peers (this PC at `10.0.0.50`, the phone at
 | Request | Body / answer |
 |---|---|
 | `GET /health` | `ok` |
-| `POST /cards` | `{"cards": [NewCard]}` → `{"added_cards": n, "added_sightings": n}`; what is known is ignored |
+| `POST /cards` | `{"cards": [NewCard]}` → `{"added_cards": n, "added_sightings": n, "updated_sightings": n}`; known cards are kept, known sightings take the definition and sentence translation sent |
 | `GET /cards/due?limit=100` | cards due now with their sightings, most overdue first |
 | `POST /reviews` | `{"reviews": [Review]}` → `{"applied": n}`; a review id sent twice counts once |
 | `POST /flags` | `{"flags": [Flag]}` → `{"applied": n}`; flagged cards are no longer due |

@@ -33,9 +33,12 @@ For each word, read the whole sentence first, then give:
 \"namazat se\", \"deš\" → \"dát\").
 - pos, and gender for nouns (m, f or n; empty otherwise).
 - translation: the English translation of the lemma IN THIS SENTENCE, a few words.
-- definition: one short English sentence explaining what the word means in \
-this sentence, including slang, puns or idioms (e.g. \"namazat se\" is slang \
-for getting drunk).
+- definition: one short English sentence explaining what the lemma means as \
+used in this sentence, including slang, puns or idioms (e.g. \"namazat se\" \
+is slang for getting drunk). The card shows the lemma, so never describe the \
+form read: no case, number, person, tense or mood (not \"vocative of otec\" \
+nor \"imperative plural\", but \"one's father, or a priest; here someone \
+calls out to him\").
 - sentence_translation: a natural English translation of the sentence.
 - keep: false only for words not worth learning as Czech vocabulary: other \
 languages (English UI text), OCR garbage, names of people and places, \

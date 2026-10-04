@@ -47,7 +47,8 @@ async fn health(State(db): State<PgPool>) -> Result<&'static str, Error> {
 
 /// Adds each card unless its lemma is known, then its sighting unless the
 /// same form was already seen in the same sentence, so a batch can be sent
-/// again safely.
+/// again safely. A known sighting gets the definition and sentence
+/// translation sent, so cards made again with a better prompt replace them.
 async fn add_cards(
     State(db): State<PgPool>,
     Json(batch): Json<CardBatch>,
@@ -56,6 +57,7 @@ async fn add_cards(
     let mut result = CardBatchResult {
         added_cards: 0,
         added_sightings: 0,
+        updated_sightings: 0,
     };
     for card in &batch.cards {
         let inserted: Option<i64> = sqlx::query_scalar(
@@ -88,11 +90,17 @@ async fn add_cards(
             }
         };
         let s = &card.sighting;
-        result.added_sightings += sqlx::query(
+        // xmax is 0 for a row just inserted, not for one updated.
+        let inserted: Option<bool> = sqlx::query_scalar(
             "INSERT INTO sightings
                 (card_id, form, sentence, sentence_translation, definition, game, video, seconds, frame)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (card_id, form, sentence) DO NOTHING",
+            ON CONFLICT (card_id, form, sentence) DO UPDATE SET
+                sentence_translation = EXCLUDED.sentence_translation,
+                definition = EXCLUDED.definition
+            WHERE (sightings.sentence_translation, sightings.definition)
+                IS DISTINCT FROM (EXCLUDED.sentence_translation, EXCLUDED.definition)
+            RETURNING xmax = 0",
         )
         .bind(id)
         .bind(&s.form)
@@ -103,16 +111,21 @@ async fn add_cards(
         .bind(&s.video)
         .bind(s.seconds)
         .bind(&s.frame)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
+        .fetch_optional(&mut *tx)
+        .await?;
+        match inserted {
+            Some(true) => result.added_sightings += 1,
+            Some(false) => result.updated_sightings += 1,
+            None => {}
+        }
     }
     tx.commit().await?;
-    if result.added_sightings > 0 {
+    if result.added_sightings > 0 || result.updated_sightings > 0 {
         tracing::info!(
-            "added {} cards and {} sightings from {}",
+            "added {} cards and {} sightings, updated {} sightings, from {}",
             result.added_cards,
             result.added_sightings,
+            result.updated_sightings,
             batch.cards.len()
         );
     }

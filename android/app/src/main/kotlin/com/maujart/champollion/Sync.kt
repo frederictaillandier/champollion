@@ -34,6 +34,9 @@ object Sync {
             Backend.sendFlags(session.flags)
             context.session.updateData { it.flagsSent(session.flags) }
         }
+        if (session.reload) {
+            context.session.updateData { it.restart() }
+        }
         // Topping the session up after each rating would make it endless
         // while the backend has more cards due than a session holds.
         val due = if (context.session.data.first().queue.isEmpty()) {
@@ -54,6 +57,16 @@ object Sync {
             .build()
         WorkManager.getInstance(context)
             .enqueueUniqueWork("sync", ExistingWorkPolicy.REPLACE, request)
+    }
+
+    /**
+     * Replaces the session's cards by a new download, once the reviews and
+     * flags made here are sent. Asked in the session, so a sync replacing
+     * this one still does it.
+     */
+    suspend fun reload(context: Context) {
+        context.session.updateData { it.copy(reload = true) }
+        soon(context)
     }
 
     /** Syncs every half hour, so the widgets have cards. */

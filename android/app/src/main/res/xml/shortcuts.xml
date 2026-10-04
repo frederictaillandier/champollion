@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="reload"
+        android:shortcutShortLabel="@string/reload_short"
+        android:shortcutLongLabel="@string/reload_long">
+        <intent
+            android:action="com.maujart.champollion.RELOAD"
+            android:targetClass="com.maujart.champollion.MainActivity"
+            android:targetPackage="com.maujart.champollion" />
+    </shortcut>
+</shortcuts>

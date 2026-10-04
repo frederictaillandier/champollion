@@ -30,7 +30,8 @@ impl Uploader {
     }
 
     /// Sends the cards added since the last upload. Sending a card twice is
-    /// harmless: the backend ignores what it already has.
+    /// harmless: the backend keeps the cards it has, and only takes the new
+    /// definition and sentence translation of the sightings it has.
     pub fn upload(&mut self, dir: &Path) -> Result<(), String> {
         let Some(mut pending) = Pending::read(dir, "cards.jsonl", PROGRESS_FILE) else {
             return Ok(());
@@ -54,11 +55,12 @@ impl Uploader {
                 .and_then(|mut r| r.body_mut().read_json())
                 .map_err(|e| e.to_string())?;
             pending.advance(chunk)?;
-            if result.added_sightings > 0 {
+            if result.added_sightings > 0 || result.updated_sightings > 0 {
                 tracing::info!(
-                    "backend got {} new cards and {} new sightings of {game}",
+                    "backend got {} new cards and {} new sightings of {game}, and updated {} sightings",
                     result.added_cards,
-                    result.added_sightings
+                    result.added_sightings,
+                    result.updated_sightings
                 );
             }
         }

@@ -27,6 +27,8 @@ data class Session(
     val pending: List<Review> = emptyList(),
     /** Cards flagged here, not sent yet. */
     val flags: List<Flag> = emptyList(),
+    /** Whether the next sync replaces the cards with a new session. */
+    val reload: Boolean = false,
     /** Epoch millis of the last successful sync, 0 if never. */
     val lastSync: Long = 0,
     /** Why the last sync failed, null if it worked. */
@@ -77,6 +79,13 @@ data class Session(
             flags = flags + Flag(card.id, Instant.ofEpochMilli(now).toString()),
         )
     }
+
+    /**
+     * Forgets the session's cards, so the next ones are downloaded again
+     * (e.g. with better definitions). Ratings and flags not sent are kept.
+     */
+    fun restart(): Session =
+        copy(cards = emptyList(), queue = emptyList(), flipped = false, reload = false)
 
     /** Forgets reviews the backend has received. */
     fun sent(reviews: List<Review>): Session {

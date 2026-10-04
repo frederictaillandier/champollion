@@ -3,4 +3,6 @@
     <string name="app_name">Champollion</string>
     <string name="widget_name">Flashcards</string>
     <string name="widget_description">Review the words read in your games</string>
+    <string name="reload_short">Reload cards</string>
+    <string name="reload_long">Download a new session of cards</string>
 </resources>
