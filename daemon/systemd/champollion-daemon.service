@@ -1,0 +1,18 @@
+[Unit]
+Description=Champollion: record the screen while a Steam game runs
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.cargo/bin/champollion-daemon
+# Overrides, see `champollion-daemon --help`:
+#Environment=CHAMPOLLION_APP_ID=1771300
+#Environment=CHAMPOLLION_OUTPUT_DIR=%h/champollion/recordings
+#Environment=CHAMPOLLION_FRAMERATE=15
+#Environment=CHAMPOLLION_QP=20
+Restart=on-failure
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=graphical-session.target
