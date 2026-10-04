@@ -5,8 +5,11 @@ After=graphical-session.target
 
 [Service]
 ExecStart=%h/.cargo/bin/champollion-daemon
-# Words are sent there through the WireGuard tunnel (see backend/).
+# Flashcards of the words read are made by Claude Code, then sent there
+# through the WireGuard tunnel (see backend/).
 Environment=CHAMPOLLION_BACKEND_URL=http://10.0.0.1:8090
+Environment=CHAMPOLLION_CLAUDE=%h/.local/bin/claude
+#Environment=CHAMPOLLION_CARDS_MODEL=sonnet
 # Overrides, see `champollion-daemon --help`:
 #Environment=CHAMPOLLION_APP_ID=1771300
 #Environment=CHAMPOLLION_OUTPUT_DIR=%h/champollion/recordings

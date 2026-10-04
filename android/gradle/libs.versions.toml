@@ -2,11 +2,20 @@
 agp = "9.4.1"
 kotlin = "2.4.20"
 glance = "1.2.0"
+datastore = "1.2.1"
+work = "2.12.0"
+serialization = "1.11.0"
+junit = "4.13.2"
 
 [libraries]
 glance-appwidget = { module = "androidx.glance:glance-appwidget", version.ref = "glance" }
 glance-material3 = { module = "androidx.glance:glance-material3", version.ref = "glance" }
+datastore = { module = "androidx.datastore:datastore", version.ref = "datastore" }
+work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
+junit = { module = "junit:junit", version.ref = "junit" }
+serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

@@ -3,12 +3,22 @@ A rust suite of tools to decipher languages using video games
 
 ## android
 
-An Android app with a widget, so far showing "Hello, world!" (Kotlin,
-[Jetpack Glance](https://developer.android.com/develop/ui/compose/glance)), in
-two versions: one for the home screen, and one for the Galaxy Z Flip's cover
-screen (Flex Window), which Samsung requires to be a keyguard widget of at
-least 352×339 dp with a `com.samsung.android.appwidget.provider` declaring
-`display="sub_screen"`.
+A flashcard widget (Kotlin,
+[Jetpack Glance](https://developer.android.com/develop/ui/compose/glance)) to
+review the cards of the backend like in Anki: the word and the game sentence
+it was read in; tapped, its translation, its meaning in that sentence and the
+sentence's translation, with the Again / Hard / Good / Easy buttons.
+
+It comes in two versions sharing one review session: one for the home screen,
+and one for the Galaxy Z Flip's cover screen (Flex Window), which Samsung
+requires to be a keyguard widget of at least 352×339 dp with a
+`com.samsung.android.appwidget.provider` declaring `display="sub_screen"`.
+
+Reviewing works offline. The phone downloads the cards due (up to 50) and
+keeps them with the ratings not sent yet (`Session`, in a DataStore). Ratings
+are sent, then cards downloaded, by WorkManager as soon as the backend is
+reachable, and every 30 minutes. "Again" shows a card again 10 minutes later
+in the session; the backend schedules the rest when it gets the ratings.
 
 Needs the Android SDK in `~/Android/Sdk` (or `ANDROID_HOME`) and a JDK 17+
 for Gradle (Android Studio's own works: `org.gradle.java.home` in
@@ -19,9 +29,11 @@ cd android
 ./gradlew installDebug
 ```
 
-Then tap the Champollion app icon, which asks the launcher to add the widget
-(or long-press the home screen → Widgets → Champollion → Hello). For the
-cover screen: Settings → Cover screen → Widgets → Hello.
+Then tap the Champollion app icon: it syncs, and asks the launcher to add
+the widget if there is none (or long-press the home screen → Widgets →
+Champollion → Flashcards). For the cover screen: Settings → Cover screen →
+Widgets → Flashcards. The backend is only reachable with the phone's
+WireGuard tunnel on.
 
 ## daemon
 
@@ -92,11 +104,29 @@ Options: `--no-ocr`, `--ocr-lang`, `--ocr-fps`, `--ocr-workers`,
 `--ocr-min-confidence`, `--text-dir` (or the matching `CHAMPOLLION_*`
 environment variables).
 
+### Making flashcards
+
 With `--backend-url` (`CHAMPOLLION_BACKEND_URL`, set in the systemd unit),
-the daemon sends new lines of each `vocabulary.tsv` to the backend every
-minute, 500 words per request. `uploaded.txt` next to it holds how many bytes
-were sent; delete it to send everything again (the backend ignores words it
-already has).
+the daemon turns the new words of each `vocabulary.tsv` into flashcards every
+minute, and sends them to the backend. It asks Claude, through the Claude
+Code CLI in headless mode (`claude -p`, with its login, no tools nor
+settings, thinking off), about 40 words at a time with their sentences: their
+dictionary form (`králem` → `král`), part of speech and gender, English
+translation, meaning in that sentence (slang included) and the sentence's
+translation, and whether to keep them at all (not English UI text, OCR
+garbage, names or numbers). Sonnet takes about 20 seconds per batch and
+understands the context much better than Haiku.
+
+Files next to `vocabulary.tsv`:
+
+- `cards.jsonl`: one card per word kept (`NewCard` in `api/`).
+- `dropped.tsv`: the words not kept, with why.
+- `generated.txt`, `uploaded.txt`: how many bytes of `vocabulary.tsv` were
+  made into cards, and of `cards.jsonl` sent. Delete one to redo that step;
+  the backend ignores what it already has.
+
+Options: `--claude` (path of the `claude` executable), `--cards-model`
+(default `sonnet`), `--no-cards` (only send the cards already made).
 
 ### Extracting frames later
 
@@ -108,8 +138,10 @@ gst-launch-1.0 filesrc location=22-24-25_000.mkv ! decodebin ! videoconvert \
 
 ## backend
 
-`champollion-backend` stores the words read by the daemon in PostgreSQL and
-schedules their review like Anki (SM-2). It runs on taillandier.io and only
+`champollion-backend` stores the flashcards made by the daemon in PostgreSQL
+and schedules their review like Anki (SM-2). There is one card per dictionary
+form; each word read in a game is a sighting of its card (form, sentence,
+translations), so `král` and `králem` make one card with two sightings. It runs on taillandier.io and only
 listens on its WireGuard address, `10.0.0.1:8090`: the only devices that can
 reach it are WireGuard peers (this PC at `10.0.0.50`, the phone at
 `10.0.0.51`). Their tunnels only route `10.0.0.1` through the VPN.
@@ -117,8 +149,8 @@ reach it are WireGuard peers (this PC at `10.0.0.50`, the phone at
 | Request | Body / answer |
 |---|---|
 | `GET /health` | `ok` |
-| `POST /words` | `{"words": [NewWord]}` → `{"added": n}`; known words are ignored |
-| `GET /cards/due?limit=100` | cards due now, most overdue first |
+| `POST /cards` | `{"cards": [NewCard]}` → `{"added_cards": n, "added_sightings": n}`; what is known is ignored |
+| `GET /cards/due?limit=100` | cards due now with their sightings, most overdue first |
 | `POST /reviews` | `{"reviews": [Review]}` → `{"applied": n}`; a review id sent twice counts once |
 
 The JSON types are in `api/` (crate `champollion-api`, shared with the daemon).

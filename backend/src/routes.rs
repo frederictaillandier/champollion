@@ -1,10 +1,14 @@
+use std::collections::HashMap;
+
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use champollion_api::{Card, Rating, ReviewBatch, WordBatch, WordBatchResult};
-use serde::{Deserialize, Serialize};
+use champollion_api::{
+    Card, CardBatch, CardBatchResult, CardSighting, Rating, ReviewBatch, ReviewBatchResult,
+};
+use serde::Deserialize;
 use sqlx::{PgPool, Row};
 
 use crate::schedule::CardState;
@@ -12,7 +16,7 @@ use crate::schedule::CardState;
 pub fn router(db: PgPool) -> Router {
     Router::new()
         .route("/health", get(health))
-        .route("/words", post(add_words))
+        .route("/cards", post(add_cards))
         .route("/cards/due", get(due_cards))
         .route("/reviews", post(add_reviews))
         .with_state(db)
@@ -39,40 +43,78 @@ async fn health(State(db): State<PgPool>) -> Result<&'static str, Error> {
     Ok("ok")
 }
 
-/// Adds the words not known yet, each with a new card. Words already known
-/// are ignored, so a batch can be sent again safely.
-async fn add_words(
+/// Adds each card unless its lemma is known, then its sighting unless the
+/// same form was already seen in the same sentence, so a batch can be sent
+/// again safely.
+async fn add_cards(
     State(db): State<PgPool>,
-    Json(batch): Json<WordBatch>,
-) -> Result<Json<WordBatchResult>, Error> {
+    Json(batch): Json<CardBatch>,
+) -> Result<Json<CardBatchResult>, Error> {
     let mut tx = db.begin().await?;
-    let mut added = 0;
-    for w in &batch.words {
-        added += sqlx::query(
-            "WITH w AS (
-                INSERT INTO words (lang, text, sentence, game, video, seconds, frame)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT (lang, text) DO NOTHING
-                RETURNING id
-            )
-            INSERT INTO cards (word_id) SELECT id FROM w",
+    let mut result = CardBatchResult {
+        added_cards: 0,
+        added_sightings: 0,
+    };
+    for card in &batch.cards {
+        let inserted: Option<i64> = sqlx::query_scalar(
+            "INSERT INTO cards (lang, lemma, pos, gender, translation)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (lang, lemma, pos) DO NOTHING
+            RETURNING id",
         )
-        .bind(&w.lang)
-        .bind(&w.text)
-        .bind(&w.sentence)
-        .bind(&w.game)
-        .bind(&w.video)
-        .bind(w.seconds)
-        .bind(&w.frame)
+        .bind(&card.lang)
+        .bind(&card.lemma)
+        .bind(&card.pos)
+        .bind(&card.gender)
+        .bind(&card.translation)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let id = match inserted {
+            Some(id) => {
+                result.added_cards += 1;
+                id
+            }
+            None => {
+                sqlx::query_scalar(
+                    "SELECT id FROM cards WHERE lang = $1 AND lemma = $2 AND pos = $3",
+                )
+                .bind(&card.lang)
+                .bind(&card.lemma)
+                .bind(&card.pos)
+                .fetch_one(&mut *tx)
+                .await?
+            }
+        };
+        let s = &card.sighting;
+        result.added_sightings += sqlx::query(
+            "INSERT INTO sightings
+                (card_id, form, sentence, sentence_translation, definition, game, video, seconds, frame)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (card_id, form, sentence) DO NOTHING",
+        )
+        .bind(id)
+        .bind(&s.form)
+        .bind(&s.sentence)
+        .bind(&s.sentence_translation)
+        .bind(&s.definition)
+        .bind(&s.game)
+        .bind(&s.video)
+        .bind(s.seconds)
+        .bind(&s.frame)
         .execute(&mut *tx)
         .await?
         .rows_affected();
     }
     tx.commit().await?;
-    if added > 0 {
-        tracing::info!("added {added} of {} words", batch.words.len());
+    if result.added_sightings > 0 {
+        tracing::info!(
+            "added {} cards and {} sightings from {}",
+            result.added_cards,
+            result.added_sightings,
+            batch.cards.len()
+        );
     }
-    Ok(Json(WordBatchResult { added }))
+    Ok(Json(result))
 }
 
 #[derive(Deserialize)]
@@ -85,46 +127,68 @@ fn default_limit() -> i64 {
     100
 }
 
-/// Cards due now, the most overdue first.
+/// Cards due now with their sightings, the most overdue first.
 async fn due_cards(
     State(db): State<PgPool>,
     Query(q): Query<DueQuery>,
 ) -> Result<Json<Vec<Card>>, Error> {
     let rows = sqlx::query(
-        "SELECT w.id, w.lang, w.text, w.sentence, w.game, c.due, c.reps
-        FROM cards c JOIN words w ON w.id = c.word_id
-        WHERE c.due <= now()
-        ORDER BY c.due
+        "SELECT id, lang, lemma, pos, gender, translation, due, reps FROM cards
+        WHERE due <= now()
+        ORDER BY due, id
         LIMIT $1",
     )
     .bind(q.limit.clamp(1, 1000))
     .fetch_all(&db)
     .await?;
+    let ids: Vec<i64> = rows
+        .iter()
+        .map(|r| r.try_get("id"))
+        .collect::<Result<_, _>>()?;
+
+    let mut sightings: HashMap<i64, Vec<CardSighting>> = HashMap::new();
+    let sighting_rows = sqlx::query(
+        "SELECT card_id, form, sentence, sentence_translation, definition FROM sightings
+        WHERE card_id = ANY($1)
+        ORDER BY id",
+    )
+    .bind(&ids)
+    .fetch_all(&db)
+    .await?;
+    for r in &sighting_rows {
+        sightings
+            .entry(r.try_get("card_id")?)
+            .or_default()
+            .push(CardSighting {
+                form: r.try_get("form")?,
+                sentence: r.try_get("sentence")?,
+                sentence_translation: r.try_get("sentence_translation")?,
+                definition: r.try_get("definition")?,
+            });
+    }
+
     let cards = rows
         .iter()
         .map(|r| {
+            let id: i64 = r.try_get("id")?;
             Ok(Card {
-                word_id: r.try_get("id")?,
+                id,
                 lang: r.try_get("lang")?,
-                text: r.try_get("text")?,
-                sentence: r.try_get("sentence")?,
-                game: r.try_get("game")?,
+                lemma: r.try_get("lemma")?,
+                pos: r.try_get("pos")?,
+                gender: r.try_get("gender")?,
+                translation: r.try_get("translation")?,
                 due: r.try_get("due")?,
                 reps: r.try_get("reps")?,
+                sightings: sightings.remove(&id).unwrap_or_default(),
             })
         })
         .collect::<Result<_, sqlx::Error>>()?;
     Ok(Json(cards))
 }
 
-#[derive(Serialize)]
-struct ReviewBatchResult {
-    /// Reviews not received before.
-    applied: u64,
-}
-
 /// Records reviews and reschedules their cards. A review already received
-/// (same id) or of an unknown word is skipped.
+/// (same id) or of an unknown card is skipped.
 async fn add_reviews(
     State(db): State<PgPool>,
     Json(batch): Json<ReviewBatch>,
@@ -136,21 +200,21 @@ async fn add_reviews(
     let mut applied = 0;
     for review in &reviews {
         let card = sqlx::query(
-            "SELECT interval_days, ease, reps, lapses FROM cards WHERE word_id = $1 FOR UPDATE",
+            "SELECT interval_days, ease, reps, lapses FROM cards WHERE id = $1 FOR UPDATE",
         )
-        .bind(review.word_id)
+        .bind(review.card_id)
         .fetch_optional(&mut *tx)
         .await?;
         let Some(card) = card else {
-            tracing::warn!("review of unknown word {}", review.word_id);
+            tracing::warn!("review of unknown card {}", review.card_id);
             continue;
         };
         let inserted = sqlx::query(
-            "INSERT INTO reviews (id, word_id, rating, reviewed_at) VALUES ($1, $2, $3, $4)
+            "INSERT INTO reviews (id, card_id, rating, reviewed_at) VALUES ($1, $2, $3, $4)
             ON CONFLICT (id) DO NOTHING",
         )
         .bind(review.id)
-        .bind(review.word_id)
+        .bind(review.card_id)
         .bind(rating_name(review.rating))
         .bind(review.reviewed_at)
         .execute(&mut *tx)
@@ -168,9 +232,9 @@ async fn add_reviews(
         let (next, due) = state.review(review.rating, review.reviewed_at);
         sqlx::query(
             "UPDATE cards SET due = $2, interval_days = $3, ease = $4, reps = $5, lapses = $6
-            WHERE word_id = $1",
+            WHERE id = $1",
         )
-        .bind(review.word_id)
+        .bind(review.card_id)
         .bind(due)
         .bind(next.interval_days)
         .bind(next.ease)

@@ -1,0 +1,81 @@
+package com.maujart.champollion
+
+import android.content.Context
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.first
+import kotlinx.serialization.SerializationException
+
+/** Sends the reviews made here, then downloads the cards due. */
+object Sync {
+    /** Cards downloaded at once: a session's worth. */
+    private const val SESSION_SIZE = 50
+
+    suspend fun run(context: Context) {
+        val pending = context.session.data.first().pending
+        if (pending.isNotEmpty()) {
+            Backend.sendReviews(pending)
+            context.session.updateData { it.sent(pending) }
+        }
+        val due = Backend.dueCards(SESSION_SIZE)
+        context.session.updateData {
+            it.merge(due).copy(lastSync = System.currentTimeMillis(), syncError = null)
+        }
+    }
+
+    /** Syncs as soon as there is a network, retrying until it works. */
+    fun soon(context: Context) {
+        val request = OneTimeWorkRequestBuilder<SyncWorker>()
+            .setConstraints(networkConstraint)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork("sync", ExistingWorkPolicy.REPLACE, request)
+    }
+
+    /** Syncs every half hour, so the widgets have cards. */
+    fun periodically(context: Context) {
+        val request = PeriodicWorkRequestBuilder<SyncWorker>(30, TimeUnit.MINUTES)
+            .setConstraints(networkConstraint)
+            .build()
+        WorkManager.getInstance(context)
+            .enqueueUniquePeriodicWork("periodic-sync", ExistingPeriodicWorkPolicy.KEEP, request)
+    }
+
+    private val networkConstraint =
+        Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+}
+
+class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val result = try {
+            Sync.run(applicationContext)
+            Result.success()
+        } catch (e: IOException) {
+            // Usually the WireGuard tunnel is off: try again later.
+            fail(e)
+            Result.retry()
+        } catch (e: SerializationException) {
+            fail(e)
+            Result.failure()
+        }
+        updateWidgets(applicationContext)
+        return result
+    }
+
+    private suspend fun fail(e: Exception) {
+        applicationContext.session.updateData {
+            it.copy(syncError = e.message ?: e.javaClass.simpleName)
+        }
+    }
+}

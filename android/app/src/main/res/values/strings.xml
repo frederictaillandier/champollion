@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Champollion</string>
-    <string name="widget_name">Hello</string>
-    <string name="widget_description">Says hello</string>
+    <string name="widget_name">Flashcards</string>
+    <string name="widget_description">Review the words read in your games</string>
 </resources>

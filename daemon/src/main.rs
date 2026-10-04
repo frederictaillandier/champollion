@@ -1,7 +1,7 @@
+mod cards;
 mod extract;
 mod record;
 mod tray;
-mod upload;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -70,10 +70,22 @@ struct Args {
     #[arg(long, default_value_t = 70.0, env = "CHAMPOLLION_OCR_MIN_CONFIDENCE")]
     ocr_min_confidence: f32,
 
-    /// Backend receiving the words read, e.g. `http://10.0.0.1:8090`; words
-    /// stay local without it
+    /// Backend receiving flashcards of the words read, e.g.
+    /// `http://10.0.0.1:8090`; no cards are made without it
     #[arg(long, env = "CHAMPOLLION_BACKEND_URL")]
     backend_url: Option<String>,
+
+    /// Claude Code executable, which makes the cards
+    #[arg(long, default_value = "claude", env = "CHAMPOLLION_CLAUDE")]
+    claude: PathBuf,
+
+    /// Claude model making the cards (`sonnet`, `haiku`...)
+    #[arg(long, default_value = "sonnet", env = "CHAMPOLLION_CARDS_MODEL")]
+    cards_model: String,
+
+    /// Don't make new cards, only send the ones already made
+    #[arg(long, env = "CHAMPOLLION_NO_CARDS")]
+    no_cards: bool,
 
     /// Seconds between two checks for the game
     #[arg(long, default_value_t = 2.0, env = "CHAMPOLLION_POLL_INTERVAL")]
@@ -200,12 +212,16 @@ fn main() {
         )
     });
 
-    let uploader = args.backend_url.as_ref().map(|url| {
-        upload::spawn(
-            upload::Config {
+    let cards = args.backend_url.as_ref().map(|url| {
+        cards::spawn(
+            cards::Config {
                 text_dir: text_dir.clone(),
-                backend_url: url.trim_end_matches('/').to_owned(),
                 lang: args.ocr_lang.clone(),
+                claude: (!args.no_cards).then(|| cards::Claude {
+                    bin: args.claude.clone(),
+                    model: args.cards_model.clone(),
+                }),
+                backend_url: url.trim_end_matches('/').to_owned(),
             },
             Arc::clone(&stop),
         )
@@ -340,8 +356,8 @@ fn main() {
     if let Some(indexer) = indexer {
         indexer.join();
     }
-    if let Some(uploader) = uploader {
-        let _ = uploader.join();
+    if let Some(cards) = cards {
+        let _ = cards.join();
     }
     drop(commands_tx);
 }
