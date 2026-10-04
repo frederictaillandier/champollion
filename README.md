@@ -7,17 +7,21 @@ A flashcard widget (Kotlin,
 [Jetpack Glance](https://developer.android.com/develop/ui/compose/glance)) to
 review the cards of the backend like in Anki: the word and the game sentence
 it was read in; tapped, its translation, its meaning in that sentence and the
-sentence's translation, with the Again / Hard / Good / Easy buttons.
+sentence's translation, with the Again / Easy buttons (the backend still
+schedules them as in Anki) and ⚑ to flag a wrong card: it leaves the
+reviews, and is kept in the backend (`flagged_at`) to be fixed.
 
 It comes in two versions sharing one review session: one for the home screen,
 and one for the Galaxy Z Flip's cover screen (Flex Window), which Samsung
 requires to be a keyguard widget of at least 352×339 dp with a
 `com.samsung.android.appwidget.provider` declaring `display="sub_screen"`.
 
-Reviewing works offline. The phone downloads the cards due (up to 50) and
-keeps them with the ratings not sent yet (`Session`, in a DataStore). Ratings
-are sent, then cards downloaded, by WorkManager as soon as the backend is
-reachable, and every 30 minutes. "Again" shows a card again 10 minutes later
+Reviewing works offline. The phone downloads a session of cards due (up to
+50) and keeps them with the ratings and flags not sent yet (`Session`, in a
+DataStore); "N left" counts the session's cards, those rated Again included.
+Ratings and flags are sent by WorkManager as soon as the backend is
+reachable, and every 30 minutes; the next session is downloaded once this one
+is done. "Again" shows a card again 10 minutes later
 in the session; the backend schedules the rest when it gets the ratings.
 
 Needs the Android SDK in `~/Android/Sdk` (or `ANDROID_HOME`) and a JDK 17+
@@ -152,6 +156,7 @@ reach it are WireGuard peers (this PC at `10.0.0.50`, the phone at
 | `POST /cards` | `{"cards": [NewCard]}` → `{"added_cards": n, "added_sightings": n}`; what is known is ignored |
 | `GET /cards/due?limit=100` | cards due now with their sightings, most overdue first |
 | `POST /reviews` | `{"reviews": [Review]}` → `{"applied": n}`; a review id sent twice counts once |
+| `POST /flags` | `{"flags": [Flag]}` → `{"applied": n}`; flagged cards are no longer due |
 
 The JSON types are in `api/` (crate `champollion-api`, shared with the daemon).
 

@@ -32,10 +32,9 @@ data class CardSighting(
     val definition: String,
 )
 
+/** The backend also knows Hard and Good, which the widget leaves out. */
 enum class Rating(val label: String) {
     Again("Again"),
-    Hard("Hard"),
-    Good("Good"),
     Easy("Easy");
 
     /** As the backend spells it. */
@@ -54,6 +53,16 @@ data class Review(
 @Serializable
 private data class ReviewBatch(val reviews: List<Review>)
 
+/** A card flagged as having an issue: the backend stops showing it. */
+@Serializable
+data class Flag(
+    @SerialName("card_id") val cardId: Long,
+    @SerialName("flagged_at") val flaggedAt: String,
+)
+
+@Serializable
+private data class FlagBatch(val flags: List<Flag>)
+
 val json = Json { ignoreUnknownKeys = true }
 
 /** champollion-backend, through the WireGuard tunnel. */
@@ -65,6 +74,10 @@ object Backend {
 
     suspend fun sendReviews(reviews: List<Review>) {
         request("POST", "/reviews", json.encodeToString(ReviewBatch(reviews)))
+    }
+
+    suspend fun sendFlags(flags: List<Flag>) {
+        request("POST", "/flags", json.encodeToString(FlagBatch(flags)))
     }
 
     private suspend fun request(method: String, path: String, body: String?): String =

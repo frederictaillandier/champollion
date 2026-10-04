@@ -12,6 +12,7 @@ import androidx.datastore.dataStoreFile
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
+import androidx.glance.action.Action
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.action.clickable
@@ -37,6 +38,7 @@ import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
+import androidx.glance.layout.width
 import androidx.glance.state.GlanceStateDefinition
 import androidx.glance.text.FontStyle
 import androidx.glance.text.FontWeight
@@ -128,7 +130,8 @@ private fun Content(session: Session) {
 private fun Status(session: Session) {
     val parts = buildList {
         add("${session.queue.size} left")
-        if (session.pending.isNotEmpty()) add("${session.pending.size} to send")
+        val unsent = session.pending.size + session.flags.size
+        if (unsent > 0) add("$unsent to send")
         if (session.syncError != null) add("offline")
     }
     Text(
@@ -225,6 +228,7 @@ private fun ColumnScope.Back(card: Card) {
     }
     Row(modifier = GlanceModifier.fillMaxWidth()) {
         Rating.entries.forEach { RateButton(it) }
+        FlagButton()
     }
 }
 
@@ -234,26 +238,43 @@ private fun grammar(card: Card): String =
 
 private val buttonColors = mapOf(
     Rating.Again to Color(0xFFC62828),
-    Rating.Hard to Color(0xFFEF6C00),
-    Rating.Good to Color(0xFF2E7D32),
-    Rating.Easy to Color(0xFF1565C0),
+    Rating.Easy to Color(0xFF2E7D32),
 )
 
 @Composable
 private fun RowScope.RateButton(rating: Rating) {
-    Box(modifier = GlanceModifier.defaultWeight().height(40.dp).padding(horizontal = 2.dp)) {
+    Button(
+        label = rating.label,
+        color = buttonColors.getValue(rating),
+        action = actionRunCallback<RateAction>(actionParametersOf(RatingKey to rating.name)),
+        modifier = GlanceModifier.defaultWeight(),
+    )
+}
+
+/** Takes a wrong card out of the reviews. */
+@Composable
+private fun FlagButton() {
+    Button(
+        label = "⚑",
+        color = Color(0xFF616161),
+        action = actionRunCallback<FlagAction>(),
+        modifier = GlanceModifier.width(48.dp),
+    )
+}
+
+@Composable
+private fun Button(label: String, color: Color, action: Action, modifier: GlanceModifier) {
+    Box(modifier = modifier.height(40.dp).padding(horizontal = 2.dp)) {
         Box(
             modifier = GlanceModifier
                 .fillMaxSize()
-                .background(buttonColors.getValue(rating))
+                .background(color)
                 .cornerRadius(8.dp)
-                .clickable(
-                    actionRunCallback<RateAction>(actionParametersOf(RatingKey to rating.name)),
-                ),
+                .clickable(action),
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = rating.label,
+                text = label,
                 maxLines = 1,
                 style = TextStyle(
                     color = ColorProvider(Color.White),
@@ -318,6 +339,14 @@ class RateAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val rating = Rating.valueOf(parameters[RatingKey] ?: return)
         context.session.updateData { it.rate(rating, System.currentTimeMillis()) }
+        updateWidgets(context)
+        Sync.soon(context)
+    }
+}
+
+class FlagAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        context.session.updateData { it.flag(System.currentTimeMillis()) }
         updateWidgets(context)
         Sync.soon(context)
     }

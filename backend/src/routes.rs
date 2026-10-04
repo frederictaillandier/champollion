@@ -6,7 +6,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use champollion_api::{
-    Card, CardBatch, CardBatchResult, CardSighting, Rating, ReviewBatch, ReviewBatchResult,
+    Card, CardBatch, CardBatchResult, CardSighting, FlagBatch, FlagBatchResult, Rating,
+    ReviewBatch, ReviewBatchResult,
 };
 use serde::Deserialize;
 use sqlx::{PgPool, Row};
@@ -19,6 +20,7 @@ pub fn router(db: PgPool) -> Router {
         .route("/cards", post(add_cards))
         .route("/cards/due", get(due_cards))
         .route("/reviews", post(add_reviews))
+        .route("/flags", post(add_flags))
         .with_state(db)
 }
 
@@ -127,14 +129,15 @@ fn default_limit() -> i64 {
     100
 }
 
-/// Cards due now with their sightings, the most overdue first.
+/// Cards due now with their sightings, the most overdue first. Flagged
+/// cards are left out.
 async fn due_cards(
     State(db): State<PgPool>,
     Query(q): Query<DueQuery>,
 ) -> Result<Json<Vec<Card>>, Error> {
     let rows = sqlx::query(
         "SELECT id, lang, lemma, pos, gender, translation, due, reps FROM cards
-        WHERE due <= now()
+        WHERE due <= now() AND flagged_at IS NULL
         ORDER BY due, id
         LIMIT $1",
     )
@@ -246,6 +249,30 @@ async fn add_reviews(
     }
     tx.commit().await?;
     Ok(Json(ReviewBatchResult { applied }))
+}
+
+/// Flags cards, keeping the first flag of each. Unknown cards are skipped.
+async fn add_flags(
+    State(db): State<PgPool>,
+    Json(batch): Json<FlagBatch>,
+) -> Result<Json<FlagBatchResult>, Error> {
+    let mut tx = db.begin().await?;
+    let mut applied = 0;
+    for flag in &batch.flags {
+        applied += sqlx::query(
+            "UPDATE cards SET flagged_at = $2 WHERE id = $1 AND flagged_at IS NULL",
+        )
+        .bind(flag.card_id)
+        .bind(flag.flagged_at)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    }
+    tx.commit().await?;
+    if applied > 0 {
+        tracing::info!("flagged {applied} cards");
+    }
+    Ok(Json(FlagBatchResult { applied }))
 }
 
 fn rating_name(rating: Rating) -> &'static str {

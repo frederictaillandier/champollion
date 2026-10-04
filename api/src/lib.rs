@@ -109,3 +109,22 @@ pub struct ReviewBatchResult {
     /// Reviews not received before.
     pub applied: u64,
 }
+
+/// A card flagged on a device as having an issue: it is no longer reviewed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Flag {
+    pub card_id: i64,
+    pub flagged_at: DateTime<Utc>,
+}
+
+/// `POST /flags`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlagBatch {
+    pub flags: Vec<Flag>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlagBatchResult {
+    /// Cards not flagged before.
+    pub applied: u64,
+}

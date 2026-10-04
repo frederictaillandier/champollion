@@ -25,6 +25,8 @@ data class Session(
     /** Whether the current card shows its back. */
     val flipped: Boolean = false,
     val pending: List<Review> = emptyList(),
+    /** Cards flagged here, not sent yet. */
+    val flags: List<Flag> = emptyList(),
     /** Epoch millis of the last successful sync, 0 if never. */
     val lastSync: Long = 0,
     /** Why the last sync failed, null if it worked. */
@@ -65,18 +67,33 @@ data class Session(
         )
     }
 
+    /** Takes the current card out of the session, to be flagged. */
+    fun flag(now: Long): Session {
+        val card = current(now) ?: return this
+        return copy(
+            cards = cards.filterNot { it.id == card.id },
+            queue = queue.filterNot { it.cardId == card.id },
+            flipped = false,
+            flags = flags + Flag(card.id, Instant.ofEpochMilli(now).toString()),
+        )
+    }
+
     /** Forgets reviews the backend has received. */
     fun sent(reviews: List<Review>): Session {
         val ids = reviews.map { it.id }.toSet()
         return copy(pending = pending.filterNot { it.id in ids })
     }
 
+    /** Forgets flags the backend has received. */
+    fun flagsSent(sent: List<Flag>): Session = copy(flags = flags - sent.toSet())
+
     /**
      * Adds cards downloaded from the backend, except those already in the
-     * session or rated here and not sent yet.
+     * session, or rated or flagged here and not sent yet.
      */
     fun merge(downloaded: List<Card>): Session {
-        val known = queue.map { it.cardId }.toSet() + pending.map { it.cardId }
+        val known = queue.map { it.cardId }.toSet() + pending.map { it.cardId } +
+            flags.map { it.cardId }
         val added = downloaded.filter { it.id !in known }
         val updated = cards.map { c -> downloaded.find { it.id == c.id } ?: c }
         return copy(cards = updated + added, queue = queue + added.map { Queued(it.id) })

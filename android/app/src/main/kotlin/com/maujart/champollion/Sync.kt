@@ -16,18 +16,31 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.SerializationException
 
-/** Sends the reviews made here, then downloads the cards due. */
+/**
+ * Sends the reviews and flags made here, then, once the session is done,
+ * downloads the next one.
+ */
 object Sync {
     /** Cards downloaded at once: a session's worth. */
     private const val SESSION_SIZE = 50
 
     suspend fun run(context: Context) {
-        val pending = context.session.data.first().pending
-        if (pending.isNotEmpty()) {
-            Backend.sendReviews(pending)
-            context.session.updateData { it.sent(pending) }
+        val session = context.session.data.first()
+        if (session.pending.isNotEmpty()) {
+            Backend.sendReviews(session.pending)
+            context.session.updateData { it.sent(session.pending) }
         }
-        val due = Backend.dueCards(SESSION_SIZE)
+        if (session.flags.isNotEmpty()) {
+            Backend.sendFlags(session.flags)
+            context.session.updateData { it.flagsSent(session.flags) }
+        }
+        // Topping the session up after each rating would make it endless
+        // while the backend has more cards due than a session holds.
+        val due = if (context.session.data.first().queue.isEmpty()) {
+            Backend.dueCards(SESSION_SIZE)
+        } else {
+            emptyList()
+        }
         context.session.updateData {
             it.merge(due).copy(lastSync = System.currentTimeMillis(), syncError = null)
         }
