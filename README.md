@@ -92,10 +92,54 @@ Options: `--no-ocr`, `--ocr-lang`, `--ocr-fps`, `--ocr-workers`,
 `--ocr-min-confidence`, `--text-dir` (or the matching `CHAMPOLLION_*`
 environment variables).
 
+With `--backend-url` (`CHAMPOLLION_BACKEND_URL`, set in the systemd unit),
+the daemon sends new lines of each `vocabulary.tsv` to the backend every
+minute, 500 words per request. `uploaded.txt` next to it holds how many bytes
+were sent; delete it to send everything again (the backend ignores words it
+already has).
+
 ### Extracting frames later
 
 ```sh
 # one PNG per second
 gst-launch-1.0 filesrc location=22-24-25_000.mkv ! decodebin ! videoconvert \
   ! videorate ! video/x-raw,framerate=1/1 ! pngenc ! multifilesink location=frame_%05d.png
+```
+
+## backend
+
+`champollion-backend` stores the words read by the daemon in PostgreSQL and
+schedules their review like Anki (SM-2). It runs on taillandier.io and only
+listens on its WireGuard address, `10.0.0.1:8090`: the only devices that can
+reach it are WireGuard peers (this PC at `10.0.0.50`, the phone at
+`10.0.0.51`). Their tunnels only route `10.0.0.1` through the VPN.
+
+| Request | Body / answer |
+|---|---|
+| `GET /health` | `ok` |
+| `POST /words` | `{"words": [NewWord]}` → `{"added": n}`; known words are ignored |
+| `GET /cards/due?limit=100` | cards due now, most overdue first |
+| `POST /reviews` | `{"reviews": [Review]}` → `{"applied": n}`; a review id sent twice counts once |
+
+The JSON types are in `api/` (crate `champollion-api`, shared with the daemon).
+
+### Deploy
+
+The server and this PC both run Ubuntu 24.04 (glibc 2.39), so a local build
+runs there:
+
+```sh
+cargo build --release -p champollion-backend
+ssh taillandier.io mkdir -p champollion-deploy
+scp target/release/champollion-backend backend/deploy/* taillandier.io:champollion-deploy/
+ssh -t taillandier.io 'cd champollion-deploy && sudo ./setup-server.sh ./champollion-backend'
+```
+
+`setup-server.sh` creates the database and the `champollion` user (it
+connects through the local socket, without password), installs the systemd
+unit and opens port 8090 on `wg0` only. Arguments `NAME=PUBLIC_KEY@IP` also
+add WireGuard peers. Migrations in `backend/migrations/` run at startup.
+
+```sh
+ssh taillandier.io journalctl -u champollion-backend -f   # needs sudo
 ```

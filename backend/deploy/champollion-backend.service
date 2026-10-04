@@ -1,0 +1,21 @@
+[Unit]
+Description=champollion vocabulary backend
+Wants=network-online.target
+After=network-online.target postgresql.service wg-quick@wg0.service
+# Listens on the WireGuard address, which only exists while wg0 is up.
+Requires=wg-quick@wg0.service
+
+[Service]
+User=champollion
+Environment=CHAMPOLLION_LISTEN=10.0.0.1:8090
+Environment=DATABASE_URL=postgres://champollion@localhost/champollion?host=/var/run/postgresql
+ExecStart=/usr/local/bin/champollion-backend
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

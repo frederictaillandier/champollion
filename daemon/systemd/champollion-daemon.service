@@ -5,6 +5,8 @@ After=graphical-session.target
 
 [Service]
 ExecStart=%h/.cargo/bin/champollion-daemon
+# Words are sent there through the WireGuard tunnel (see backend/).
+Environment=CHAMPOLLION_BACKEND_URL=http://10.0.0.1:8090
 # Overrides, see `champollion-daemon --help`:
 #Environment=CHAMPOLLION_APP_ID=1771300
 #Environment=CHAMPOLLION_OUTPUT_DIR=%h/champollion/recordings

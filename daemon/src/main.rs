@@ -1,6 +1,7 @@
 mod extract;
 mod record;
 mod tray;
+mod upload;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -68,6 +69,11 @@ struct Args {
     /// Minimum OCR confidence (0-100) for a word to be kept
     #[arg(long, default_value_t = 70.0, env = "CHAMPOLLION_OCR_MIN_CONFIDENCE")]
     ocr_min_confidence: f32,
+
+    /// Backend receiving the words read, e.g. `http://10.0.0.1:8090`; words
+    /// stay local without it
+    #[arg(long, env = "CHAMPOLLION_BACKEND_URL")]
+    backend_url: Option<String>,
 
     /// Seconds between two checks for the game
     #[arg(long, default_value_t = 2.0, env = "CHAMPOLLION_POLL_INTERVAL")]
@@ -189,6 +195,17 @@ fn main() {
                     lang: args.ocr_lang.clone(),
                     min_confidence: args.ocr_min_confidence,
                 },
+            },
+            Arc::clone(&stop),
+        )
+    });
+
+    let uploader = args.backend_url.as_ref().map(|url| {
+        upload::spawn(
+            upload::Config {
+                text_dir: text_dir.clone(),
+                backend_url: url.trim_end_matches('/').to_owned(),
+                lang: args.ocr_lang.clone(),
             },
             Arc::clone(&stop),
         )
@@ -322,6 +339,9 @@ fn main() {
     }
     if let Some(indexer) = indexer {
         indexer.join();
+    }
+    if let Some(uploader) = uploader {
+        let _ = uploader.join();
     }
     drop(commands_tx);
 }
