@@ -1,0 +1,12 @@
+[versions]
+agp = "9.4.1"
+kotlin = "2.4.20"
+glance = "1.2.0"
+
+[libraries]
+glance-appwidget = { module = "androidx.glance:glance-appwidget", version.ref = "glance" }
+glance-material3 = { module = "androidx.glance:glance-material3", version.ref = "glance" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

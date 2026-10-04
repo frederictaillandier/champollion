@@ -1,6 +1,28 @@
 # champollion
 A rust suite of tools to decipher languages using video games
 
+## android
+
+An Android app with a widget, so far showing "Hello, world!" (Kotlin,
+[Jetpack Glance](https://developer.android.com/develop/ui/compose/glance)), in
+two versions: one for the home screen, and one for the Galaxy Z Flip's cover
+screen (Flex Window), which Samsung requires to be a keyguard widget of at
+least 352×339 dp with a `com.samsung.android.appwidget.provider` declaring
+`display="sub_screen"`.
+
+Needs the Android SDK in `~/Android/Sdk` (or `ANDROID_HOME`) and a JDK 17+
+for Gradle (Android Studio's own works: `org.gradle.java.home` in
+`~/.gradle/gradle.properties`). With the phone plugged in and USB debugging on:
+
+```sh
+cd android
+./gradlew installDebug
+```
+
+Then tap the Champollion app icon, which asks the launcher to add the widget
+(or long-press the home screen → Widgets → Champollion → Hello). For the
+cover screen: Settings → Cover screen → Widgets → Hello.
+
 ## daemon
 
 `champollion-daemon` watches for Kingdom Come: Deliverance II (Steam app
