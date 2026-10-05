@@ -1,5 +1,7 @@
 use axum::Json;
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
+use axum::http::{StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use champollion_api::{Card, CardBatch, CardBatchResult, DueCount};
 use serde::Deserialize;
 
@@ -11,7 +13,11 @@ pub async fn add(
     State(state): State<AppState>,
     Json(batch): Json<CardBatch>,
 ) -> Result<Json<CardBatchResult>, Error> {
-    Ok(Json(state.cards.add(&batch).await?))
+    let result = state.cards.add(&batch).await?;
+    if result.added_cards > 0 {
+        state.pronunciations.wake();
+    }
+    Ok(Json(result))
 }
 
 #[derive(Deserialize)]
@@ -35,4 +41,13 @@ pub async fn due(
 /// `GET /cards/due/count`
 pub async fn due_count(State(state): State<AppState>) -> Result<Json<DueCount>, Error> {
     Ok(Json(state.cards.due_count().await?))
+}
+
+/// `GET /cards/{id}/audio`: the MP3 of the card's dictionary form, or 404
+/// while it is not made.
+pub async fn audio(State(state): State<AppState>, Path(id): Path<i64>) -> Result<Response, Error> {
+    Ok(match state.pronunciations.audio(id).await? {
+        Some(mp3) => ([(header::CONTENT_TYPE, "audio/mpeg")], mp3).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    })
 }

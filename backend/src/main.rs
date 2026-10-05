@@ -1,4 +1,5 @@
 mod controllers;
+mod elevenlabs;
 mod error;
 mod repositories;
 mod schedule;
@@ -22,6 +23,36 @@ struct Args {
     /// local socket.
     #[arg(long, env = "DATABASE_URL")]
     database_url: String,
+
+    /// ElevenLabs API key, to speak the cards' words; none are spoken
+    /// without it
+    #[arg(long, env = "ELEVENLABS_API_KEY", hide_env_values = true)]
+    elevenlabs_api_key: Option<String>,
+
+    /// ElevenLabs voice speaking the words
+    #[arg(
+        long,
+        default_value = "JBFqnCBsd6RMkjVDRZzb",
+        env = "CHAMPOLLION_ELEVENLABS_VOICE"
+    )]
+    elevenlabs_voice: String,
+
+    /// ElevenLabs model; it must take a language code, or short words may be
+    /// read in the wrong language
+    #[arg(
+        long,
+        default_value = "eleven_turbo_v2_5",
+        env = "CHAMPOLLION_ELEVENLABS_MODEL"
+    )]
+    elevenlabs_model: String,
+
+    /// ElevenLabs API address
+    #[arg(
+        long,
+        default_value = "https://api.elevenlabs.io",
+        env = "CHAMPOLLION_ELEVENLABS_URL"
+    )]
+    elevenlabs_url: String,
 }
 
 #[tokio::main]
@@ -39,11 +70,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     sqlx::migrate!().run(&db).await?;
 
+    let elevenlabs = args.elevenlabs_api_key.map(|key| {
+        elevenlabs::ElevenLabs::new(
+            args.elevenlabs_url,
+            key,
+            args.elevenlabs_voice,
+            args.elevenlabs_model,
+        )
+    });
+    let pronunciations = services::PronunciationService::new(db.clone(), elevenlabs);
+    pronunciations.spawn();
+
     let listener = tokio::net::TcpListener::bind(args.listen).await?;
     tracing::info!("listening on {}", args.listen);
     axum::serve(
         listener,
-        controllers::router(controllers::AppState::new(db)),
+        controllers::router(controllers::AppState::new(db, pronunciations)),
     )
     .with_graceful_shutdown(shutdown())
     .await?;

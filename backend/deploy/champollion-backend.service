@@ -9,6 +9,8 @@ Requires=wg-quick@wg0.service
 User=champollion
 Environment=CHAMPOLLION_LISTEN=10.0.0.1:8090
 Environment=DATABASE_URL=postgres://champollion@localhost/champollion?host=/var/run/postgresql
+# ELEVENLABS_API_KEY=..., to speak the cards' words; kept out of this file.
+EnvironmentFile=-/etc/champollion/backend.env
 ExecStart=/usr/local/bin/champollion-backend
 Restart=on-failure
 RestartSec=5

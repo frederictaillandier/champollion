@@ -147,7 +147,7 @@ private fun Content(session: Session) {
         Status(session)
         when {
             card == null -> Empty(session)
-            session.flipped -> Back(card)
+            session.flipped -> Back(card, session.muted)
             else -> Front(card)
         }
     }
@@ -208,7 +208,7 @@ private fun ColumnScope.Front(card: Card) {
 }
 
 @Composable
-private fun ColumnScope.Back(card: Card) {
+private fun ColumnScope.Back(card: Card, muted: Boolean) {
     val sighting = card.sightings.firstOrNull()
     Column(
         modifier = GlanceModifier
@@ -256,6 +256,7 @@ private fun ColumnScope.Back(card: Card) {
     Row(modifier = GlanceModifier.fillMaxWidth()) {
         Rating.entries.forEach { RateButton(it) }
         FlagButton()
+        MuteButton(muted)
     }
 }
 
@@ -285,6 +286,17 @@ private fun FlagButton() {
         label = "⚑",
         color = Color(0xFF616161),
         action = actionRunCallback<FlagAction>(),
+        modifier = GlanceModifier.width(48.dp),
+    )
+}
+
+/** Stops speaking the words when their card shows, or starts again. */
+@Composable
+private fun MuteButton(muted: Boolean) {
+    Button(
+        label = if (muted) "🔇" else "🔊",
+        color = Color(0xFF616161),
+        action = actionRunCallback<MuteAction>(),
         modifier = GlanceModifier.width(48.dp),
     )
 }
@@ -366,6 +378,7 @@ class RateAction : ActionCallback {
         val session = context.session.updateData { it.rate(rating, System.currentTimeMillis()) }
         updateWidgets(context)
         Sync.whenDone(context, session)
+        speak(context, session)
     }
 }
 
@@ -374,7 +387,24 @@ class FlagAction : ActionCallback {
         val session = context.session.updateData { it.flag(System.currentTimeMillis()) }
         updateWidgets(context)
         Sync.whenDone(context, session)
+        speak(context, session)
     }
+}
+
+class MuteAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        context.session.updateData { it.toggleMute() }
+        updateWidgets(context)
+    }
+}
+
+/**
+ * Says the word of the card now shown, unless muted. Only after a tap: the
+ * first card of a session, shown by a sync, stays silent.
+ */
+private suspend fun speak(context: Context, session: Session) {
+    if (session.muted) return
+    session.current()?.let { Pronunciations.play(context, it) }
 }
 
 class RefreshAction : ActionCallback {

@@ -28,6 +28,8 @@ data class Session(
     val pending: List<Review> = emptyList(),
     /** Cards flagged here, not sent yet. */
     val flags: List<Flag> = emptyList(),
+    /** Whether the words are not spoken when their card shows. */
+    val muted: Boolean = false,
     /** Whether the next sync replaces the cards with a new session. */
     val reload: Boolean = false,
     /** Epoch millis of the last successful sync, 0 if never. */
@@ -40,6 +42,8 @@ data class Session(
         queue.firstOrNull()?.let { q -> cards.find { it.id == q.cardId } }
 
     fun flip(): Session = copy(flipped = !flipped)
+
+    fun toggleMute(): Session = copy(muted = !muted)
 
     /**
      * Records a rating of the current card. A failed card goes back in the

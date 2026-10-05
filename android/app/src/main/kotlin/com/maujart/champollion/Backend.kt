@@ -1,5 +1,6 @@
 package com.maujart.champollion
 
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -70,7 +71,15 @@ object Backend {
     private const val TIMEOUT_MS = 15_000
 
     suspend fun dueCards(limit: Int): List<Card> =
-        json.decodeFromString(request("GET", "/cards/due?limit=$limit", null))
+        json.decodeFromString(request("GET", "/cards/due?limit=$limit", null).decodeToString())
+
+    /** The MP3 of the card's word, or null while the backend has none. */
+    suspend fun audio(cardId: Long): ByteArray? =
+        try {
+            request("GET", "/cards/$cardId/audio", null)
+        } catch (e: FileNotFoundException) {
+            null
+        }
 
     suspend fun sendReviews(reviews: List<Review>) {
         request("POST", "/reviews", json.encodeToString(ReviewBatch(reviews)))
@@ -80,7 +89,8 @@ object Backend {
         request("POST", "/flags", json.encodeToString(FlagBatch(flags)))
     }
 
-    private suspend fun request(method: String, path: String, body: String?): String =
+    /** Throws [FileNotFoundException] on a 404. */
+    private suspend fun request(method: String, path: String, body: String?): ByteArray =
         withContext(Dispatchers.IO) {
             val connection = URL(BuildConfig.BACKEND_URL + path).openConnection() as HttpURLConnection
             try {
@@ -92,10 +102,12 @@ object Backend {
                     connection.setRequestProperty("Content-Type", "application/json")
                     connection.outputStream.use { it.write(body.toByteArray()) }
                 }
-                if (connection.responseCode !in 200..299) {
-                    throw IOException("$method $path: HTTP ${connection.responseCode}")
+                when (connection.responseCode) {
+                    in 200..299 -> {}
+                    404 -> throw FileNotFoundException("$method $path: HTTP 404")
+                    else -> throw IOException("$method $path: HTTP ${connection.responseCode}")
                 }
-                connection.inputStream.use { it.readBytes().decodeToString() }
+                connection.inputStream.use { it.readBytes() }
             } finally {
                 connection.disconnect()
             }

@@ -51,6 +51,14 @@ class SessionTest {
     }
 
     @Test
+    fun stayingMutedAcrossCardsAndNewSessions() {
+        val session = Session().merge(listOf(card(1), card(2))).toggleMute()
+            .rate(Rating.Succeeded, now).restart().merge(listOf(card(3)))
+        assertEquals(true, session.muted)
+        assertEquals(false, session.toggleMute().muted)
+    }
+
+    @Test
     fun downloadsSkipCardsAlreadyInTheSessionOrRatedButNotSent() {
         val session = Session().merge(listOf(card(1), card(2))).rate(Rating.Succeeded, now)
             .merge(listOf(card(1), card(2), card(3)))

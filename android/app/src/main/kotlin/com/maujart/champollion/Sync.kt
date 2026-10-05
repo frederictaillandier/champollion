@@ -44,8 +44,10 @@ object Sync {
         } else {
             emptyList()
         }
+        val merged = context.session.updateData { it.merge(due) }
+        Pronunciations.download(context, merged.cards)
         context.session.updateData {
-            it.merge(due).copy(lastSync = System.currentTimeMillis(), syncError = null)
+            it.copy(lastSync = System.currentTimeMillis(), syncError = null)
         }
     }
 

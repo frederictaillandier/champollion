@@ -11,6 +11,11 @@ sentence's translation, with the Failed / Succeed buttons and ⚑ to flag a
 wrong card: it leaves the reviews, and is kept in the backend (`flagged_at`)
 to be fixed.
 
+Each time a rating or a flag shows the next card, its word is spoken (the
+backend's ElevenLabs recording, downloaded with the session, so it plays
+offline too). The first card of a session, shown by a sync rather than a
+tap, stays silent. 🔊 next to ⚑ mutes the words, 🔇 speaks them again.
+
 It comes in two versions sharing one review session: one for the home screen,
 and one for the Galaxy Z Flip's cover screen (Flex Window), which Samsung
 requires to be a keyguard widget of at least 352×339 dp with a
@@ -188,6 +193,7 @@ reach it are WireGuard peers (this PC at `10.0.0.50`, the phone at
 | `POST /cards` | `{"cards": [NewCard]}` → `{"added_cards": n, "added_sightings": n, "updated_sightings": n}`; known cards are kept, known sightings (same card, form and frame) take the sentence, its translation and the definition sent |
 | `GET /cards/due?limit=100` | cards due now with their sightings, those already reviewed first, then new ones, each in random order |
 | `GET /cards/due/count` | `{"due": n}`: how many cards are due now, new ones included |
+| `GET /cards/{id}/audio` | the MP3 of the card's dictionary form, or 404 while it is not made |
 | `POST /reviews` | `{"reviews": [Review]}` → `{"applied": n}`; a review id sent twice counts once |
 | `POST /flags` | `{"flags": [Flag]}` → `{"applied": n}`; flagged cards are no longer due |
 
@@ -204,6 +210,23 @@ The code is in layers, each calling only the next:
   query. They take a connection, so that a service can run several in one
   transaction.
 - `schedule.rs`: when to show a card again, without database nor HTTP.
+- `elevenlabs.rs`: the ElevenLabs text-to-speech API.
+
+### Pronunciations
+
+With an ElevenLabs API key (`ELEVENLABS_API_KEY`), a background task speaks
+the dictionary form of every card that has no pronunciation yet, the
+soonest due first, and stores the MP3 in the `pronunciations` table. It runs
+when cards are added, and every 5 minutes after a failure (network, key,
+quota). A word ElevenLabs refuses is skipped until the backend restarts.
+
+The default model is `eleven_turbo_v2_5` (`CHAMPOLLION_ELEVENLABS_MODEL`),
+which is told the card's language: otherwise a short word can be read as
+English (`most`). The default voice is a premade one, `JBFqnCBsd6RMkjVDRZzb`
+(`CHAMPOLLION_ELEVENLABS_VOICE`); a native voice from ElevenLabs' voice
+library sounds better. Words already spoken keep their voice; to make them
+again, delete their rows (`DELETE FROM pronunciations WHERE voice = '...'`)
+and restart the backend.
 
 ### Deploy
 
@@ -221,6 +244,13 @@ ssh -t taillandier.io 'cd champollion-deploy && sudo ./setup-server.sh ./champol
 connects through the local socket, without password), installs the systemd
 unit and opens port 8090 on `wg0` only. Arguments `NAME=PUBLIC_KEY@IP` also
 add WireGuard peers. Migrations in `backend/migrations/` run at startup.
+
+The ElevenLabs API key stays out of the repository, in a file the unit
+reads:
+
+```sh
+ssh -t taillandier.io 'sudo install -d /etc/champollion && sudo install -m 600 /dev/null /etc/champollion/backend.env && echo ELEVENLABS_API_KEY=... | sudo tee /etc/champollion/backend.env >/dev/null'
+```
 
 ```sh
 ssh taillandier.io journalctl -u champollion-backend -f   # needs sudo

@@ -2,6 +2,7 @@
 //! connection, so that services can run several in one transaction.
 
 pub mod cards;
+pub mod pronunciations;
 pub mod reviews;
 pub mod sightings;
 
