@@ -47,6 +47,9 @@ object Pronunciations {
         }
     }
 
+    /** Whether the card's word is on the phone. */
+    fun has(context: Context, cardId: Long): Boolean = file(context, cardId).exists()
+
     /** Plays the card's word, if downloaded, and returns once it ends. */
     suspend fun play(context: Context, card: Card) {
         val file = file(context, card.id).takeIf { it.exists() } ?: return

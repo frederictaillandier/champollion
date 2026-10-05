@@ -16,6 +16,7 @@ import androidx.datastore.dataStoreFile
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
+import androidx.glance.LocalContext
 import androidx.glance.action.Action
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
@@ -205,6 +206,20 @@ private fun ColumnScope.Front(card: Card) {
             style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 11.sp),
         )
     }
+    // Outside the card's tap area, so listening does not flip it.
+    if (Pronunciations.has(LocalContext.current, card.id)) {
+        Row(
+            modifier = GlanceModifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Button(
+                label = "🔊",
+                color = Color(0xFF616161),
+                action = actionRunCallback<SpeakAction>(),
+                modifier = GlanceModifier.width(64.dp),
+            )
+        }
+    }
 }
 
 @Composable
@@ -388,6 +403,13 @@ class FlagAction : ActionCallback {
         updateWidgets(context)
         Sync.whenDone(context, session)
         speak(context, session)
+    }
+}
+
+/** Says the current card's word again, muted or not: it was asked for. */
+class SpeakAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        context.session.data.first().current()?.let { Pronunciations.play(context, it) }
     }
 }
 

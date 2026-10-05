@@ -14,7 +14,8 @@ to be fixed.
 Each time a rating or a flag shows the next card, its word is spoken (the
 backend's ElevenLabs recording, downloaded with the session, so it plays
 offline too). The first card of a session, shown by a sync rather than a
-tap, stays silent. 🔊 next to ⚑ mutes the words, 🔇 speaks them again.
+tap, stays silent; 🔊 under the word plays it again, muted or not. 🔊
+next to ⚑ mutes the words, 🔇 speaks them again.
 
 It comes in two versions sharing one review session: one for the home screen,
 and one for the Galaxy Z Flip's cover screen (Flex Window), which Samsung
