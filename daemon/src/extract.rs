@@ -19,7 +19,7 @@ use image::{RgbImage, imageops};
 use serde::Serialize;
 
 pub use ocr::Ocr;
-use ocr::{Reader, Word};
+use ocr::{Reader, Screen, Word};
 
 pub struct Config {
     pub recordings_dir: PathBuf,
@@ -189,6 +189,7 @@ struct FrameText<'a> {
     video: &'a str,
     seconds: f64,
     words: &'a [Word],
+    lines: &'a [String],
 }
 
 impl Context {
@@ -317,7 +318,7 @@ impl Context {
         let workers = readers.len();
         let (frames_tx, frames_rx) = sync_channel::<Frame>(workers * 2);
         let frames_rx = Arc::new(Mutex::new(frames_rx));
-        let (read_tx, read_rx) = sync_channel::<(Frame, Result<Vec<Word>, String>)>(workers * 2);
+        let (read_tx, read_rx) = sync_channel::<(Frame, Result<Screen, String>)>(workers * 2);
         let name = video.path.file_name().unwrap_or_default().to_string_lossy();
 
         thread::scope(|scope| {
@@ -330,10 +331,10 @@ impl Context {
                         let Ok(frame) = frames_rx.lock().unwrap().recv() else {
                             break;
                         };
-                        let words = reader
+                        let screen = reader
                             .read(&imageops::grayscale(&frame.image))
                             .map_err(|e| format!("tesseract failed: {e}"));
-                        if read_tx.send((frame, words)).is_err() {
+                        if read_tx.send((frame, screen)).is_err() {
                             break;
                         }
                     }
@@ -347,11 +348,11 @@ impl Context {
             let mut pending = BTreeMap::new();
             let mut next = 0;
             let mut tracker = Tracker::new(rate);
-            for (frame, words) in read_rx {
-                pending.insert(frame.index, (frame, words));
-                while let Some((frame, words)) = pending.remove(&next) {
+            for (frame, screen) in read_rx {
+                pending.insert(frame.index, (frame, screen));
+                while let Some((frame, screen)) = pending.remove(&next) {
                     next += 1;
-                    self.handle_frame(video, game, &mut tracker, frame, words?);
+                    self.handle_frame(video, game, &mut tracker, frame, screen?);
                 }
                 duration = duration.or_else(|| {
                     pipeline
@@ -421,9 +422,9 @@ impl Context {
         game: &mut GameText,
         tracker: &mut Tracker,
         frame: Frame,
-        words: Vec<Word>,
+        screen: Screen,
     ) {
-        let (mut words, appeared) = tracker.update(frame.index, words);
+        let (mut words, appeared) = tracker.update(frame.index, screen.words);
         if game.is_skipped_screen(&words) {
             return;
         }
@@ -457,6 +458,7 @@ impl Context {
                     video: &video.id,
                     seconds: frame.seconds,
                     words: &words,
+                    lines: &screen.lines,
                 };
                 let body = serde_json::to_string_pretty(&text).map_err(|e| e.to_string())?;
                 fs::write(&json, body).map_err(|e| e.to_string())

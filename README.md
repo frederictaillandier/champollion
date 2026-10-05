@@ -17,11 +17,12 @@ requires to be a keyguard widget of at least 352×339 dp with a
 `com.samsung.android.appwidget.provider` declaring `display="sub_screen"`.
 
 Reviewing works offline. The phone downloads a session of cards due (up to
-50) and keeps them with the ratings and flags not sent yet (`Session`, in a
+50: those already reviewed first, then new ones, each in random order) and
+keeps them with the ratings and flags not sent yet (`Session`, in a
 DataStore); "N left" counts the session's cards, those rated Again included.
-Ratings and flags are sent by WorkManager as soon as the backend is
-reachable, and every 30 minutes; the next session is downloaded once this one
-is done. "Again" shows a card again 10 minutes later
+Once the session is done, WorkManager sends its ratings and flags and
+downloads the next one, as soon as the backend is reachable; it also syncs
+every 30 minutes. "Again" shows a card again 10 minutes later
 in the session; the backend schedules the rest when it gets the ratings.
 Long-press the app icon → Reload cards to replace the session's cards by a
 new download (e.g. after their definitions were made again).
@@ -93,7 +94,9 @@ characters, OCR confidence >= 70). Output in
 
 - `<date>/<video>+MMmSSs.png`: a frame showing new text, with a `.json` next
   to it listing each word, its confidence, its box `[left, top, width,
-  height]` and whether it is `new` (never seen in any earlier frame).
+  height]` and whether it is `new` (never seen in any earlier frame), and
+  all the `lines` read, noise included, for Claude to find whole sentences
+  in.
 
   To filter out OCR noise (game scenery misread as letters), a word only
   counts once it is read in 2 of 3 consecutive frames, and a frame is saved
@@ -116,8 +119,10 @@ With `--backend-url` (`CHAMPOLLION_BACKEND_URL`, set in the systemd unit),
 the daemon turns the new words of each `vocabulary.tsv` into flashcards every
 minute, and sends them to the backend. It asks Claude, through the Claude
 Code CLI in headless mode (`claude -p`, with its login, no tools nor
-settings, thinking off), about 40 words at a time with their sentences: their
-dictionary form (`králem` → `král`), part of speech and gender, English
+settings, thinking off), about 40 words at a time with the text of the
+screens they were read on: the sentence each was read in, whole even across
+lines and with OCR errors and button icons cleaned up (`Pomozmna nádvoří` →
+`Pomoz na nádvoří`), their dictionary form (`králem` → `král`), part of speech and gender, English
 translation, meaning in that sentence (slang included; of the dictionary
 form, without the grammar of the form read) and the sentence's
 translation, and whether to keep them at all (not English UI text, OCR
@@ -156,8 +161,8 @@ reach it are WireGuard peers (this PC at `10.0.0.50`, the phone at
 | Request | Body / answer |
 |---|---|
 | `GET /health` | `ok` |
-| `POST /cards` | `{"cards": [NewCard]}` → `{"added_cards": n, "added_sightings": n, "updated_sightings": n}`; known cards are kept, known sightings take the definition and sentence translation sent |
-| `GET /cards/due?limit=100` | cards due now with their sightings, most overdue first |
+| `POST /cards` | `{"cards": [NewCard]}` → `{"added_cards": n, "added_sightings": n, "updated_sightings": n}`; known cards are kept, known sightings (same card, form and frame) take the sentence, its translation and the definition sent |
+| `GET /cards/due?limit=100` | cards due now with their sightings, those already reviewed first, then new ones, each in random order |
 | `POST /reviews` | `{"reviews": [Review]}` → `{"applied": n}`; a review id sent twice counts once |
 | `POST /flags` | `{"flags": [Flag]}` → `{"applied": n}`; flagged cards are no longer due |
 

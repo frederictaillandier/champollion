@@ -46,9 +46,9 @@ async fn health(State(db): State<PgPool>) -> Result<&'static str, Error> {
 }
 
 /// Adds each card unless its lemma is known, then its sighting unless the
-/// same form was already seen in the same sentence, so a batch can be sent
-/// again safely. A known sighting gets the definition and sentence
-/// translation sent, so cards made again with a better prompt replace them.
+/// same form was already seen on the same frame, so a batch can be sent
+/// again safely. A known sighting gets the sentence, its translation and the
+/// definition sent, so cards made again with a better prompt replace them.
 async fn add_cards(
     State(db): State<PgPool>,
     Json(batch): Json<CardBatch>,
@@ -95,11 +95,13 @@ async fn add_cards(
             "INSERT INTO sightings
                 (card_id, form, sentence, sentence_translation, definition, game, video, seconds, frame)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (card_id, form, sentence) DO UPDATE SET
+            ON CONFLICT (card_id, form, frame) DO UPDATE SET
+                sentence = EXCLUDED.sentence,
                 sentence_translation = EXCLUDED.sentence_translation,
                 definition = EXCLUDED.definition
-            WHERE (sightings.sentence_translation, sightings.definition)
-                IS DISTINCT FROM (EXCLUDED.sentence_translation, EXCLUDED.definition)
+            WHERE (sightings.sentence, sightings.sentence_translation, sightings.definition)
+                IS DISTINCT FROM
+                (EXCLUDED.sentence, EXCLUDED.sentence_translation, EXCLUDED.definition)
             RETURNING xmax = 0",
         )
         .bind(id)
@@ -142,8 +144,8 @@ fn default_limit() -> i64 {
     100
 }
 
-/// Cards due now with their sightings, the most overdue first. Flagged
-/// cards are left out.
+/// Cards due now with their sightings: those already reviewed first, then
+/// new ones, each in random order. Flagged cards are left out.
 async fn due_cards(
     State(db): State<PgPool>,
     Query(q): Query<DueQuery>,
@@ -151,7 +153,7 @@ async fn due_cards(
     let rows = sqlx::query(
         "SELECT id, lang, lemma, pos, gender, translation, due, reps FROM cards
         WHERE due <= now() AND flagged_at IS NULL
-        ORDER BY due, id
+        ORDER BY (reps > 0 OR lapses > 0) DESC, random()
         LIMIT $1",
     )
     .bind(q.limit.clamp(1, 1000))

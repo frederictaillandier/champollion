@@ -49,6 +49,14 @@ object Sync {
         }
     }
 
+    /**
+     * Syncs once the session is done: syncing after each card made the
+     * widgets redraw again while studying, for nothing.
+     */
+    fun whenDone(context: Context, session: Session) {
+        if (session.queue.isEmpty()) soon(context)
+    }
+
     /** Syncs as soon as there is a network, retrying until it works. */
     fun soon(context: Context) {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()

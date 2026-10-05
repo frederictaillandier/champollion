@@ -52,7 +52,7 @@ pub struct CardBatchResult {
     pub added_cards: u64,
     /// New sightings, of new or known cards.
     pub added_sightings: u64,
-    /// Known sightings whose definition or sentence translation changed.
+    /// Known sightings whose sentence, its translation or definition changed.
     #[serde(default)]
     pub updated_sightings: u64,
 }

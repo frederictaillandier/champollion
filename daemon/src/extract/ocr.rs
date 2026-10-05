@@ -16,6 +16,16 @@ pub struct Word {
     pub sentence: String,
 }
 
+/// What was read on a frame.
+#[derive(Debug, Default)]
+pub struct Screen {
+    /// Words worth learning, with their sentence.
+    pub words: Vec<Word>,
+    /// All the text tesseract read, line by line, noise included: for Claude
+    /// to find whole sentences in, which the daemon's own cannot always be.
+    pub lines: Vec<String>,
+}
+
 impl Word {
     /// Key used to decide whether two words are the same.
     pub fn key(&self) -> String {
@@ -66,7 +76,7 @@ pub struct Reader {
 }
 
 impl Reader {
-    pub fn read(&mut self, image: &GrayImage) -> Result<Vec<Word>, String> {
+    pub fn read(&mut self, image: &GrayImage) -> Result<Screen, String> {
         let engine = match self.engine.take() {
             Some(engine) => engine,
             None => self.ocr.engine()?,
@@ -88,18 +98,19 @@ impl Reader {
 /// A token as tesseract returned it, before filtering.
 struct Token<'a> {
     paragraph: (&'a str, &'a str),
+    line: &'a str,
     text: &'a str,
     confidence: f32,
     bbox: Option<[u32; 4]>,
 }
 
 /// Parses tesseract's TSV output, keeping confident, word-like tokens, each
-/// with the sentence it belongs to.
+/// with the sentence it belongs to, and every line read.
 ///
 /// Columns: level page block par line word left top width height conf text;
 /// level 5 rows are words (the header line, when present, is skipped by that
 /// check).
-fn parse_tsv(tsv: &str, min_confidence: f32) -> Vec<Word> {
+fn parse_tsv(tsv: &str, min_confidence: f32) -> Screen {
     let tokens: Vec<Token> = tsv
         .lines()
         .filter_map(|line| {
@@ -110,12 +121,27 @@ fn parse_tsv(tsv: &str, min_confidence: f32) -> Vec<Word> {
             let num = |i: usize| cols[i].parse::<u32>().ok();
             Some(Token {
                 paragraph: (cols[2], cols[3]),
+                line: cols[4],
                 text: cols[11].trim(),
                 confidence: cols[10].parse().ok()?,
                 bbox: (|| Some([num(6)?, num(7)?, num(8)?, num(9)?]))(),
             })
         })
         .collect();
+
+    let mut lines: Vec<String> = Vec::new();
+    for (i, token) in tokens.iter().enumerate() {
+        let same_line = i > 0
+            && tokens[i - 1].paragraph == token.paragraph
+            && tokens[i - 1].line == token.line;
+        match lines.last_mut() {
+            Some(line) if same_line => {
+                line.push(' ');
+                line.push_str(token.text);
+            }
+            _ => lines.push(token.text.to_owned()),
+        }
+    }
 
     let mut words = Vec::new();
     for sentence in sentences(&tokens) {
@@ -139,7 +165,7 @@ fn parse_tsv(tsv: &str, min_confidence: f32) -> Vec<Word> {
             }
         }
     }
-    words
+    Screen { words, lines }
 }
 
 /// Confidence under which a token is OCR noise rather than text. Real text
@@ -211,7 +237,9 @@ mod tests {
                    5\t1\t1\t1\t1\t2\t190\t200\t40\t20\t40.0\tmeč\n\
                    5\t1\t1\t1\t1\t3\t240\t200\t10\t20\t96.0\ta\n\
                    5\t1\t1\t1\t1\t4\t260\t200\t30\t20\t96.0\tx7z\n";
-        let words = parse_tsv(tsv, 70.0);
+        let screen = parse_tsv(tsv, 70.0);
+        assert_eq!(screen.lines, ["Jindřich, meč a x7z"]);
+        let words = screen.words;
         assert_eq!(words.len(), 1);
         assert_eq!(words[0].text, "Jindřich");
         assert_eq!(words[0].bbox, [100, 200, 80, 20]);
@@ -252,6 +280,7 @@ mod tests {
         );
         let sentence_of = |word: &str| {
             parse_tsv(&tsv, 70.0)
+                .words
                 .into_iter()
                 .find(|w| w.text == word)
                 .unwrap()

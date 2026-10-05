@@ -1,6 +1,8 @@
 //! Makes flashcards from a game's `vocabulary.tsv` by asking Claude, through
 //! the Claude Code CLI in headless mode, about batches of words.
 
+use std::collections::BTreeMap;
+use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -11,6 +13,7 @@ use std::time::{Duration, Instant};
 use champollion_api::{NewCard, Sighting};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use unicode_normalization::UnicodeNormalization;
 
 use super::{Pending, append};
 
@@ -28,7 +31,17 @@ from the Czech subtitles and menus of the video game {game}, whose characters \
 may speak colloquial or archaic Czech (e.g. \"potřebujem\" for \"potřebujeme\", \
 \"deš\" for \"dáš\").
 
-For each word, read the whole sentence first, then give:
+You get the screens the words were read on, as OCR text line by line: \
+the subtitles, menus and tutorials, mixed with noise (game scenery and \
+button icons read as letters, e.g. \"(()\" or \"(4)\"), and lines OCR may \
+have split in pieces. Each word gives the id of its screen.
+
+For each word, find the sentence it was read in on its screen, then give:
+- sentence: that sentence as the game shows it, whole, even across lines: \
+leave out the noise, fix words OCR merged, split or misread (\"Pomozmna \
+nádvoří\" → \"Pomoz na nádvoří\"), and drop button icons (\"držením ((). \
+Vystřelíš\" → \"držením. Vystřelíš\"). Only fix what OCR got wrong: never \
+reword it. Keep the word itself in it.
 - lemma: its standard dictionary form (\"králem\" → \"král\", \"namažem\" → \
 \"namazat se\", \"deš\" → \"dát\").
 - pos, and gender for nouns (m, f or n; empty otherwise).
@@ -39,7 +52,7 @@ is slang for getting drunk). The card shows the lemma, so never describe the \
 form read: no case, number, person, tense or mood (not \"vocative of otec\" \
 nor \"imperative plural\", but \"one's father, or a priest; here someone \
 calls out to him\").
-- sentence_translation: a natural English translation of the sentence.
+- sentence_translation: a natural English translation of that sentence.
 - keep: false only for words not worth learning as Czech vocabulary: other \
 languages (English UI text), OCR garbage, names of people and places, \
 numbers. Colloquial and archaic Czech forms are real words: keep them.
@@ -78,10 +91,62 @@ impl Word {
 }
 
 #[derive(Serialize)]
+struct Questions<'a> {
+    screens: Vec<ScreenText>,
+    words: Vec<Question<'a>>,
+}
+
+#[derive(Serialize)]
+struct ScreenText {
+    id: usize,
+    text: String,
+}
+
+#[derive(Serialize)]
 struct Question<'a> {
     id: usize,
     word: &'a str,
-    sentence: &'a str,
+    screen: usize,
+}
+
+/// The lines of a saved frame's `.json`.
+#[derive(Deserialize)]
+struct FrameLines {
+    #[serde(default)]
+    lines: Vec<String>,
+}
+
+/// What OCR read on the frame a word was first seen on. Frames saved before
+/// the daemon kept the lines only give the daemon's sentence.
+fn screen_text(dir: &Path, word: &Word) -> String {
+    let json = dir.join(&word.frame).with_extension("json");
+    fs::read_to_string(json)
+        .ok()
+        .and_then(|s| serde_json::from_str::<FrameLines>(&s).ok())
+        .filter(|f| !f.lines.is_empty())
+        .map_or_else(|| word.sentence.clone(), |f| f.lines.join("\n"))
+}
+
+/// Claude's sentence, unless the word is not one of its words (it took
+/// another line of the screen): then the daemon's. Accents are ignored, as OCR misses some
+/// ("shod" for "shoď").
+fn sentence(answer: &str, word: &Word) -> String {
+    let fold = |s: &str| -> String {
+        s.nfd()
+            .filter(|c| !('\u{300}'..='\u{36f}').contains(c))
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let form = fold(&word.form);
+    let answer = answer.trim();
+    if fold(answer)
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|w| w == form)
+    {
+        answer.to_owned()
+    } else {
+        word.sentence.clone()
+    }
 }
 
 #[derive(Deserialize)]
@@ -93,6 +158,9 @@ struct Answer {
     gender: String,
     translation: String,
     definition: String,
+    /// The sentence with its OCR errors fixed.
+    #[serde(default)]
+    sentence: String,
     sentence_translation: String,
 }
 
@@ -149,7 +217,7 @@ impl Claude {
                     translation: answer.translation,
                     sighting: Sighting {
                         form: word.form.clone(),
-                        sentence: word.sentence.clone(),
+                        sentence: sentence(&answer.sentence, word),
                         sentence_translation: answer.sentence_translation,
                         definition: answer.definition,
                         game: game.to_string(),
@@ -176,16 +244,30 @@ impl Claude {
 
     /// Asks Claude about the words, without tools, settings or memory.
     fn ask(&self, dir: &Path, game: &str, words: &[Word]) -> Result<Vec<Answer>, String> {
+        // Words read on the same screen share it.
+        let mut screens: BTreeMap<String, usize> = BTreeMap::new();
         let questions: Vec<Question> = words
             .iter()
             .enumerate()
-            .map(|(id, w)| Question {
-                id,
-                word: &w.form,
-                sentence: &w.sentence,
+            .map(|(id, w)| {
+                let count = screens.len();
+                let screen = *screens.entry(screen_text(dir, w)).or_insert(count);
+                Question {
+                    id,
+                    word: &w.form,
+                    screen,
+                }
             })
             .collect();
-        let input = serde_json::to_string(&questions).map_err(|e| e.to_string())?;
+        let screens = screens
+            .into_iter()
+            .map(|(text, id)| ScreenText { id, text })
+            .collect();
+        let input = serde_json::to_string(&Questions {
+            screens,
+            words: questions,
+        })
+        .map_err(|e| e.to_string())?;
         let mut child = Command::new(&self.bin)
             .args(["-p", "--model", &self.model, "--output-format", "json"])
             .args(["--json-schema", &schema().to_string()])
@@ -282,11 +364,12 @@ fn schema() -> serde_json::Value {
                 "gender": {"type": "string", "enum": ["m", "f", "n", ""]},
                 "translation": string,
                 "definition": string,
+                "sentence": string,
                 "sentence_translation": string,
             },
             "required": [
                 "id", "keep", "lemma", "pos", "gender", "translation", "definition",
-                "sentence_translation"
+                "sentence", "sentence_translation"
             ],
         }}},
         "required": ["cards"],
@@ -306,6 +389,18 @@ mod tests {
         assert_eq!(word.video, "kcd2/2026-10-03/22-49-34_000.mkv");
         assert_eq!(word.seconds, 1.0);
         assert_eq!(word.sentence, "Nová hra");
+    }
+
+    #[test]
+    fn keeps_the_daemon_sentence_when_claude_lost_the_word() {
+        let word = Word::parse(b"shod\tf.png\tv.mkv\t1.0\tho shod.\n").unwrap();
+        // OCR missed the háček: Claude's spelling still has the word.
+        assert_eq!(
+            sentence("Dostaň se k žebříku a podržením shoď ho.", &word),
+            "Dostaň se k žebříku a podržením shoď ho."
+        );
+        assert_eq!(sentence("Shodit žebřík", &word), "ho shod.");
+        assert_eq!(sentence("", &word), "ho shod.");
     }
 
     #[test]

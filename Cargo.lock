@@ -592,6 +592,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "unicode-normalization",
  "ureq",
  "x11rb",
 ]

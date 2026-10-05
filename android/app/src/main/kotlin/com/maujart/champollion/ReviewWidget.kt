@@ -338,17 +338,17 @@ class FlipAction : ActionCallback {
 class RateAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val rating = Rating.valueOf(parameters[RatingKey] ?: return)
-        context.session.updateData { it.rate(rating, System.currentTimeMillis()) }
+        val session = context.session.updateData { it.rate(rating, System.currentTimeMillis()) }
         updateWidgets(context)
-        Sync.soon(context)
+        Sync.whenDone(context, session)
     }
 }
 
 class FlagAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        context.session.updateData { it.flag(System.currentTimeMillis()) }
+        val session = context.session.updateData { it.flag(System.currentTimeMillis()) }
         updateWidgets(context)
-        Sync.soon(context)
+        Sync.whenDone(context, session)
     }
 }
 
