@@ -172,6 +172,18 @@ reach it are WireGuard peers (this PC at `10.0.0.50`, the phone at
 
 The JSON types are in `api/` (crate `champollion-api`, shared with the daemon).
 
+The code is in layers, each calling only the next:
+
+- `controllers/`: HTTP only. A handler reads the request, calls a service
+  and answers.
+- `services/`: what the backend does. A service holds the rules (e.g. how
+  many due cards at most) and runs its queries in a transaction when they go
+  together.
+- `repositories/`: data access, one module per table, one function per
+  query. They take a connection, so that a service can run several in one
+  transaction.
+- `schedule.rs`: when to show a card again, without database nor HTTP.
+
 ### Deploy
 
 The server and this PC both run Ubuntu 24.04 (glibc 2.39), so a local build

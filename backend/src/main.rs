@@ -1,5 +1,8 @@
-mod routes;
+mod controllers;
+mod error;
+mod repositories;
 mod schedule;
+mod services;
 
 use std::net::SocketAddr;
 
@@ -38,9 +41,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(args.listen).await?;
     tracing::info!("listening on {}", args.listen);
-    axum::serve(listener, routes::router(db))
-        .with_graceful_shutdown(shutdown())
-        .await?;
+    axum::serve(
+        listener,
+        controllers::router(controllers::AppState::new(db)),
+    )
+    .with_graceful_shutdown(shutdown())
+    .await?;
     Ok(())
 }
 
