@@ -292,9 +292,7 @@ async fn add_flags(
 
 fn rating_name(rating: Rating) -> &'static str {
     match rating {
-        Rating::Again => "again",
-        Rating::Hard => "hard",
-        Rating::Good => "good",
-        Rating::Easy => "easy",
+        Rating::Failed => "failed",
+        Rating::Succeeded => "succeeded",
     }
 }

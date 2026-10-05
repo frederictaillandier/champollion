@@ -7,9 +7,9 @@ A flashcard widget (Kotlin,
 [Jetpack Glance](https://developer.android.com/develop/ui/compose/glance)) to
 review the cards of the backend like in Anki: the word and the game sentence
 it was read in; tapped, its translation, its meaning in that sentence and the
-sentence's translation, with the Again / Easy buttons (the backend still
-schedules them as in Anki) and ⚑ to flag a wrong card: it leaves the
-reviews, and is kept in the backend (`flagged_at`) to be fixed.
+sentence's translation, with the Failed / Succeed buttons and ⚑ to flag a
+wrong card: it leaves the reviews, and is kept in the backend (`flagged_at`)
+to be fixed.
 
 It comes in two versions sharing one review session: one for the home screen,
 and one for the Galaxy Z Flip's cover screen (Flex Window), which Samsung
@@ -19,11 +19,12 @@ requires to be a keyguard widget of at least 352×339 dp with a
 Reviewing works offline. The phone downloads a session of cards due (up to
 50: those already reviewed first, then new ones, each in random order) and
 keeps them with the ratings and flags not sent yet (`Session`, in a
-DataStore); "N left" counts the session's cards, those rated Again included.
+DataStore); "N left" counts the session's cards, those failed included.
 Once the session is done, WorkManager sends its ratings and flags and
 downloads the next one, as soon as the backend is reachable; it also syncs
-every 30 minutes. "Again" shows a card again 10 minutes later
-in the session; the backend schedules the rest when it gets the ratings.
+every 30 minutes. A failed card goes back in the session at a random place
+(after the next card, if there is one); the backend schedules the rest when
+it gets the ratings.
 Long-press the app icon → Reload cards to replace the session's cards by a
 new download (e.g. after their definitions were made again).
 
@@ -151,7 +152,10 @@ gst-launch-1.0 filesrc location=22-24-25_000.mkv ! decodebin ! videoconvert \
 ## backend
 
 `champollion-backend` stores the flashcards made by the daemon in PostgreSQL
-and schedules their review like Anki (SM-2). There is one card per dictionary
+and schedules their review like Anki (SM-2), but with two ratings and gaps
+starting at 10 minutes: a success multiplies the card's gap by its ease × 1.3
+(10 min, 35 min, 2 h, 8 h, 1.3 days…), a failure brings it back to 10 minutes
+and lowers the ease. There is one card per dictionary
 form; each word read in a game is a sighting of its card (form, sentence,
 translations), so `král` and `králem` make one card with two sightings. It runs on taillandier.io and only
 listens on its WireGuard address, `10.0.0.1:8090`: the only devices that can

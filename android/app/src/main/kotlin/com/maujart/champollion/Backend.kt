@@ -32,10 +32,10 @@ data class CardSighting(
     val definition: String,
 )
 
-/** The backend also knows Hard and Good, which the widget leaves out. */
+/** Whether a card was remembered. */
 enum class Rating(val label: String) {
-    Again("Again"),
-    Easy("Easy");
+    Failed("Failed"),
+    Succeeded("Succeed");
 
     /** As the backend spells it. */
     val wire: String get() = name.lowercase()

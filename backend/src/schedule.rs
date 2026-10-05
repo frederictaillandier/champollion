@@ -1,10 +1,13 @@
-//! When to show a card again: SM-2, the algorithm Anki started from.
+//! When to show a card again: SM-2, the algorithm Anki started from, with
+//! two ratings and gaps starting at minutes rather than days.
 
 use champollion_api::Rating;
 use chrono::{DateTime, Duration, Utc};
 
-/// A card forgotten again is shown after this delay, in the same session.
-const RELEARN_DELAY: Duration = Duration::minutes(10);
+/// The shortest gap: after a failure, or the first success.
+const MIN_GAP_DAYS: f64 = 10.0 / (24.0 * 60.0);
+/// Each success multiplies the gap by the card's ease and this.
+const SUCCESS_BONUS: f64 = 1.3;
 const MIN_EASE: f64 = 1.3;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -20,37 +23,23 @@ impl CardState {
     /// The card's state after a review, and when it is due next.
     pub fn review(&self, rating: Rating, at: DateTime<Utc>) -> (CardState, DateTime<Utc>) {
         let mut next = self.clone();
-        let interval = match rating {
-            Rating::Again => {
+        match rating {
+            Rating::Failed => {
                 next.reps = 0;
                 next.lapses += 1;
                 next.ease = (self.ease - 0.2).max(MIN_EASE);
-                next.interval_days = 0.0;
-                return (next, at + RELEARN_DELAY);
+                next.interval_days = MIN_GAP_DAYS;
             }
-            Rating::Hard => {
-                next.ease = (self.ease - 0.15).max(MIN_EASE);
-                match self.reps {
-                    0 => 1.0,
-                    _ => (self.interval_days * 1.2).max(1.0),
-                }
-            }
-            Rating::Good => match self.reps {
-                0 => 1.0,
-                1 => 6.0,
-                _ => self.interval_days * self.ease,
-            },
-            Rating::Easy => {
+            Rating::Succeeded => {
+                next.reps += 1;
                 next.ease = self.ease + 0.15;
-                match self.reps {
-                    0 => 4.0,
-                    _ => (self.interval_days * self.ease * 1.3).max(6.0),
-                }
+                next.interval_days = match self.reps {
+                    0 => MIN_GAP_DAYS,
+                    _ => (self.interval_days * self.ease * SUCCESS_BONUS).max(MIN_GAP_DAYS),
+                };
             }
-        };
-        next.reps += 1;
-        next.interval_days = interval;
-        let due = at + Duration::seconds((interval * 86_400.0) as i64);
+        }
+        let due = at + Duration::seconds((next.interval_days * 86_400.0).round() as i64);
         (next, due)
     }
 }
@@ -73,38 +62,48 @@ mod tests {
     }
 
     #[test]
-    fn good_answers_space_out_reviews() {
-        let (card, due) = new_card().review(Rating::Good, at());
-        assert_eq!(due, at() + Duration::days(1));
-        let (card, due) = card.review(Rating::Good, at());
-        assert_eq!(due, at() + Duration::days(6));
-        let (card, due) = card.review(Rating::Good, at());
-        assert_eq!(due, at() + Duration::days(15));
+    fn successes_space_out_reviews_from_ten_minutes() {
+        let (card, due) = new_card().review(Rating::Succeeded, at());
+        assert_eq!(due, at() + Duration::minutes(10));
+        // 10 min × 2.65 × 1.3, the ease having grown by 0.15
+        let (card, due) = card.review(Rating::Succeeded, at());
+        assert_eq!(due, at() + Duration::seconds(2067));
+        // 34.45 min × 2.8 × 1.3
+        let (card, due) = card.review(Rating::Succeeded, at());
+        assert_eq!(due, at() + Duration::seconds(7524));
         assert_eq!(card.reps, 3);
     }
 
     #[test]
-    fn again_resets_the_card_and_lowers_its_ease() {
-        let (card, _) = new_card().review(Rating::Good, at());
-        let (card, _) = card.review(Rating::Good, at());
-        let (card, due) = card.review(Rating::Again, at());
-        assert_eq!(due, at() + RELEARN_DELAY);
-        assert_eq!((card.reps, card.lapses, card.ease), (0, 1, 2.3));
+    fn a_failure_brings_the_gap_back_to_ten_minutes() {
+        let mut card = new_card();
+        for _ in 0..8 {
+            card = card.review(Rating::Succeeded, at()).0;
+        }
+        assert!(card.interval_days > 1.0);
+        let (card, due) = card.review(Rating::Failed, at());
+        assert_eq!(due, at() + Duration::minutes(10));
+        assert_eq!((card.reps, card.lapses), (0, 1));
+        let (_, due) = card.review(Rating::Succeeded, at());
+        assert_eq!(due, at() + Duration::minutes(10));
     }
 
     #[test]
-    fn ease_never_drops_below_the_minimum() {
-        let mut card = new_card();
+    fn failures_lower_the_ease_down_to_the_minimum() {
+        let (card, _) = new_card().review(Rating::Failed, at());
+        assert_eq!(card.ease, 2.3);
+        let mut card = card;
         for _ in 0..20 {
-            card = card.review(Rating::Again, at()).0;
+            card = card.review(Rating::Failed, at()).0;
         }
         assert_eq!(card.ease, MIN_EASE);
     }
 
     #[test]
-    fn easy_goes_further_than_good() {
-        let (_, good) = new_card().review(Rating::Good, at());
-        let (_, easy) = new_card().review(Rating::Easy, at());
-        assert!(easy > good);
+    fn ratings_from_older_phone_builds_are_still_read() {
+        let read = |name: &str| serde_json::from_str::<Rating>(&format!("\"{name}\"")).unwrap();
+        assert_eq!(read("again"), Rating::Failed);
+        assert_eq!(read("easy"), Rating::Succeeded);
+        assert_eq!(read("succeeded"), Rating::Succeeded);
     }
 }

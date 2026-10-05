@@ -59,7 +59,7 @@ object SessionStateDefinition : GlanceStateDefinition<Session> {
 
 /**
  * A flashcard: the word and the sentence it was read in; tapped, its
- * translation and meaning there, with Anki's rating buttons.
+ * translation and meaning there, with buttons to rate it.
  */
 class ReviewWidget : GlanceAppWidget() {
     override val stateDefinition = SessionStateDefinition
@@ -107,8 +107,7 @@ suspend fun updateWidgets(context: Context) {
 
 @Composable
 private fun Content(session: Session) {
-    val now = System.currentTimeMillis()
-    val card = session.current(now)
+    val card = session.current()
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
@@ -119,7 +118,7 @@ private fun Content(session: Session) {
     ) {
         Status(session)
         when {
-            card == null -> Empty(session, now)
+            card == null -> Empty(session)
             session.flipped -> Back(card)
             else -> Front(card)
         }
@@ -237,8 +236,8 @@ private fun grammar(card: Card): String =
     listOf(card.pos, card.gender).filter { it.isNotEmpty() }.joinToString(", ")
 
 private val buttonColors = mapOf(
-    Rating.Again to Color(0xFFC62828),
-    Rating.Easy to Color(0xFF2E7D32),
+    Rating.Failed to Color(0xFFC62828),
+    Rating.Succeeded to Color(0xFF2E7D32),
 )
 
 @Composable
@@ -287,10 +286,8 @@ private fun Button(label: String, color: Color, action: Action, modifier: Glance
 }
 
 @Composable
-private fun ColumnScope.Empty(session: Session, now: Long) {
-    val next = session.nextAt(now)
+private fun ColumnScope.Empty(session: Session) {
     val title = when {
-        next != null -> "Next card in ${(next - now) / 60_000 + 1} min"
         session.lastSync == 0L && session.syncError != null -> "Can't reach the server"
         session.lastSync == 0L -> "Loading cards…"
         else -> "No cards due"

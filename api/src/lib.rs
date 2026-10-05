@@ -82,14 +82,15 @@ pub struct CardSighting {
     pub definition: String,
 }
 
-/// How well a card was remembered, as in Anki.
+/// Whether a card was remembered. The aliases are the Anki ratings sent by
+/// older builds of the phone app, which may still have some to send.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Rating {
-    Again,
-    Hard,
-    Good,
-    Easy,
+    #[serde(alias = "again")]
+    Failed,
+    #[serde(alias = "hard", alias = "good", alias = "easy")]
+    Succeeded,
 }
 
 /// A review made on a device (`POST /reviews`).

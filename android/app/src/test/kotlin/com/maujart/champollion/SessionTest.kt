@@ -1,7 +1,7 @@
 package com.maujart.champollion
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import kotlin.random.Random
 import org.junit.Test
 
 class SessionTest {
@@ -20,45 +20,60 @@ class SessionTest {
     private val now = 1_000_000L
 
     @Test
-    fun ratingGoodMovesToTheNextCard() {
-        val session = Session().merge(listOf(card(1), card(2))).rate(Rating.Good, now)
-        assertEquals(2L, session.current(now)?.id)
+    fun succeedingMovesToTheNextCard() {
+        val session = Session().merge(listOf(card(1), card(2))).rate(Rating.Succeeded, now)
+        assertEquals(2L, session.current()?.id)
         assertEquals(listOf(1L), session.pending.map { it.cardId })
-        assertEquals("good", session.pending.single().rating)
+        assertEquals("succeeded", session.pending.single().rating)
     }
 
     @Test
-    fun againShowsTheCardAgainTenMinutesLater() {
-        val session = Session().merge(listOf(card(1))).rate(Rating.Again, now)
-        assertNull(session.current(now))
-        assertEquals(now + Session.AGAIN_DELAY_MS, session.nextAt(now))
-        assertEquals(1L, session.current(now + Session.AGAIN_DELAY_MS)?.id)
+    fun aFailedCardGoesBackInTheQueueButNotFirst() {
+        repeat(20) { seed ->
+            val session = Session().merge(listOf(card(1), card(2), card(3)))
+                .rate(Rating.Failed, now, Random(seed))
+            assertEquals(2L, session.current()?.id)
+            assertEquals(setOf(1L, 2L, 3L), session.queue.map { it.cardId }.toSet())
+            assertEquals("failed", session.pending.single().rating)
+        }
+    }
+
+    @Test
+    fun theLastCardFailedIsShownAgainAtOnce() {
+        val session = Session().merge(listOf(card(1))).rate(Rating.Failed, now)
+        assertEquals(1L, session.current()?.id)
     }
 
     @Test
     fun ratingFlipsTheNextCardToItsFront() {
-        val session = Session().merge(listOf(card(1), card(2))).flip().rate(Rating.Easy, now)
+        val session = Session().merge(listOf(card(1), card(2))).flip().rate(Rating.Succeeded, now)
         assertEquals(false, session.flipped)
     }
 
     @Test
     fun downloadsSkipCardsAlreadyInTheSessionOrRatedButNotSent() {
-        val session = Session().merge(listOf(card(1), card(2))).rate(Rating.Good, now)
+        val session = Session().merge(listOf(card(1), card(2))).rate(Rating.Succeeded, now)
             .merge(listOf(card(1), card(2), card(3)))
         assertEquals(listOf(2L, 3L), session.queue.map { it.cardId })
     }
 
     @Test
     fun sentReviewsAreForgottenButNotNewerOnes() {
-        val rated = Session().merge(listOf(card(1), card(2))).rate(Rating.Good, now)
+        val rated = Session().merge(listOf(card(1), card(2))).rate(Rating.Succeeded, now)
         val sending = rated.pending
-        val session = rated.rate(Rating.Hard, now).sent(sending)
+        val session = rated.rate(Rating.Failed, now).sent(sending)
         assertEquals(listOf(2L), session.pending.map { it.cardId })
     }
 
     @Test
+    fun readsASessionSavedWithTheOldDelays() {
+        val saved = """{"queue":[{"cardId":1,"showAfter":1600000}]}"""
+        assertEquals(listOf(Queued(1)), json.decodeFromString<Session>(saved).queue)
+    }
+
+    @Test
     fun roundTripsThroughJson() {
-        val session = Session().merge(listOf(card(1))).rate(Rating.Again, now)
+        val session = Session().merge(listOf(card(1))).rate(Rating.Failed, now)
         assertEquals(session, json.decodeFromString<Session>(json.encodeToString(session)))
     }
 }
