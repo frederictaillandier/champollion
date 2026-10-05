@@ -29,7 +29,7 @@ const PROMPT: &str = "\
 You make Czech flashcards for an English speaker. The words were read by OCR \
 from the Czech subtitles and menus of the video game {game}, whose characters \
 may speak colloquial or archaic Czech (e.g. \"potřebujem\" for \"potřebujeme\", \
-\"deš\" for \"dáš\").
+\"deš\" for \"jdeš\", \"du\" for \"jdu\").
 
 You get the screens the words were read on, as OCR text line by line: \
 the subtitles, menus and tutorials, mixed with noise (game scenery and \
@@ -43,12 +43,21 @@ nádvoří\" → \"Pomoz na nádvoří\"), and drop button icons (\"držením ((
 Vystřelíš\" → \"držením. Vystřelíš\"). Only fix what OCR got wrong: never \
 reword it. Keep the word itself in it.
 - lemma: its standard dictionary form (\"králem\" → \"král\", \"namažem\" → \
-\"namazat se\", \"deš\" → \"dát\").
+\"namazat se\", \"deš\" → \"jít\"). Trace colloquial, contracted and irregular \
+forms back to the verb they really belong to, and check that the lemma's own \
+meaning fits the sentence: \"pojď\" (come!) is the imperative of \"jít\", not \
+of \"pojít\", which means to die (of an animal).
 - pos, and gender for nouns (m, f or n; empty otherwise).
-- translation: the English translation of the lemma IN THIS SENTENCE, a few words.
+- translation: the lemma's usual English meaning, a few words, as a \
+dictionary gives it first: the card is shown with every sentence the word \
+is read in, not only this one. Add another common sense after a semicolon \
+if there is one (\"utratit\" → \"to spend (money); to put down (an \
+animal)\"). Never replace the usual meaning by a figurative or game-specific \
+one: \"zmítat\" is \"to toss, to shake\" even in \"zmítáno válkou\" (torn by \
+war); that sense goes in the definition.
 - definition: one short English sentence explaining what the lemma means as \
-used in this sentence, including slang, puns or idioms (e.g. \"namazat se\" \
-is slang for getting drunk). The card shows the lemma, so never describe the \
+used in this sentence, including slang, puns, idioms and figurative senses \
+(e.g. \"namazat se\" is slang for getting drunk). The card shows the lemma, so never describe the \
 form read: no case, number, person, tense or mood (not \"vocative of otec\" \
 nor \"imperative plural\", but \"one's father, or a priest; here someone \
 calls out to him\").
