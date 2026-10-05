@@ -3,8 +3,12 @@ package com.maujart.champollion
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
+import android.os.Build
+import android.util.SizeF
+import android.widget.RemoteViews
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.datastore.core.DataStore
@@ -23,6 +27,7 @@ import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.appWidgetBackground
+import androidx.glance.appwidget.compose
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
@@ -47,6 +52,7 @@ import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import java.io.File
+import kotlinx.coroutines.flow.first
 
 /** Every widget shows the one [Session]. */
 object SessionStateDefinition : GlanceStateDefinition<Session> {
@@ -93,14 +99,36 @@ class CoverWidgetReceiver : SessionWidgetReceiver()
  * Redraws every widget placed, on both screens, after the session changed.
  * Glance's updateAll() misses widgets placed before Glance knew their
  * receiver (e.g. the cover screen's, kept across app updates).
+ *
+ * The widgets are drawn here and handed to the launcher at once: Glance's
+ * update() draws them in a WorkManager job, which Android may hold back for
+ * half a minute (e.g. right after unlocking), leaving taps unanswered.
  */
 suspend fun updateWidgets(context: Context) {
     val manager = AppWidgetManager.getInstance(context)
     val glance = GlanceAppWidgetManager(context)
     val widget = ReviewWidget()
+    val session = context.session.data.first()
     for (receiver in listOf(ReviewWidgetReceiver::class.java, CoverWidgetReceiver::class.java)) {
         for (id in manager.getAppWidgetIds(ComponentName(context, receiver))) {
-            widget.update(context, glance.getGlanceIdBy(id))
+            val glanceId = glance.getGlanceIdBy(id)
+            val options = manager.getAppWidgetOptions(id)
+            val sizes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                options.getParcelableArrayList(AppWidgetManager.OPTION_APPWIDGET_SIZES, SizeF::class.java)
+            } else {
+                null
+            }
+            // One layout per size the launcher may show it at, as SizeMode.Exact does.
+            val views = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !sizes.isNullOrEmpty()) {
+                RemoteViews(
+                    sizes.associateWith {
+                        widget.compose(context, glanceId, options, DpSize(it.width.dp, it.height.dp), session)
+                    },
+                )
+            } else {
+                widget.compose(context, glanceId, options, state = session)
+            }
+            manager.updateAppWidget(id, views)
         }
     }
 }
