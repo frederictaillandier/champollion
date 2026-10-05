@@ -28,6 +28,55 @@ impl Game {
             format!("{}-{}", self.app_id, slug)
         }
     }
+
+    /// Sends `signal` to Steam's `reaper` and every process under it: the
+    /// game, and with Proton its Wine processes. `reaper` adopts the
+    /// processes whose parent exits, so they all stay under it.
+    pub fn signal(&self, signal: libc::c_int) {
+        for pid in process_tree(self.launcher_pid) {
+            // SAFETY: kill(2) only takes integers.
+            if unsafe { libc::kill(pid as libc::pid_t, signal) } != 0 {
+                let e = std::io::Error::last_os_error();
+                if e.raw_os_error() != Some(libc::ESRCH) {
+                    tracing::warn!("could not signal process {pid}: {e}");
+                }
+            }
+        }
+    }
+}
+
+/// `root` and all its descendants.
+fn process_tree(root: u32) -> Vec<u32> {
+    let parents: Vec<(u32, u32)> = fs::read_dir("/proc")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let pid = entry.file_name().to_str()?.parse().ok()?;
+            let stat = fs::read_to_string(entry.path().join("stat")).ok()?;
+            Some((pid, parent_from_stat(&stat)?))
+        })
+        .collect();
+    let mut tree = vec![root];
+    let mut i = 0;
+    while i < tree.len() {
+        let parent = tree[i];
+        tree.extend(
+            parents
+                .iter()
+                .filter(|(_, p)| *p == parent)
+                .map(|(pid, _)| pid),
+        );
+        i += 1;
+    }
+    tree
+}
+
+/// The parent pid in `/proc/<pid>/stat`: `pid (comm) state ppid ...`, where
+/// `comm` may itself contain spaces and parentheses.
+fn parent_from_stat(stat: &str) -> Option<u32> {
+    let (_, rest) = stat.rsplit_once(')')?;
+    rest.split_whitespace().nth(1)?.parse().ok()
 }
 
 /// Finds the running Steam game with id `app_id`.
@@ -123,6 +172,29 @@ mod tests {
         let cmdline = b"/home/u/.steam/ubuntu12_32/reaper\0SteamLaunch\0AppId=1363080\0--\0/bin/game\0AppId=5\0";
         assert_eq!(app_id_from_cmdline(cmdline), Some(1363080));
         assert_eq!(app_id_from_cmdline(b"/bin/game\0AppId=5\0"), None);
+    }
+
+    #[test]
+    fn parses_parent_from_stat() {
+        assert_eq!(
+            parent_from_stat("4242 (KingdomCome.exe) S 4200 4242 4100 0 -1"),
+            Some(4200)
+        );
+        assert_eq!(parent_from_stat("7 (a) b (c) R 1 7 7 0"), Some(1));
+        assert_eq!(parent_from_stat("garbage"), None);
+    }
+
+    #[test]
+    fn finds_own_process_tree() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        let tree = process_tree(std::process::id());
+        let _ = child.kill();
+        let _ = child.wait();
+        assert_eq!(tree[0], std::process::id());
+        assert!(tree.contains(&child.id()));
     }
 
     #[test]

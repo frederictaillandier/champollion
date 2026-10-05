@@ -7,7 +7,7 @@ mod screencast;
 pub mod steam;
 pub mod window;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use recorder::Recorder;
@@ -21,22 +21,26 @@ pub struct Recording {
     pub since: Instant,
 }
 
+/// Where a recording of `game` starting now is written: its files are
+/// `<prefix>_000.mkv`, `<prefix>_001.mkv`...
+pub fn file_prefix(output_dir: &Path, game: &steam::Game) -> PathBuf {
+    let now = chrono::Local::now();
+    output_dir
+        .join(game.slug())
+        .join(now.format("%Y-%m-%d").to_string())
+        .join(now.format("%H-%M-%S").to_string())
+}
+
 impl Recording {
     pub fn start(
         rt: &tokio::runtime::Runtime,
-        game: &steam::Game,
-        output_dir: &Path,
+        prefix: &Path,
         settings: &Settings,
     ) -> Result<Self, String> {
         let cast = rt
             .block_on(ScreenCast::open())
             .map_err(|e| format!("could not share the screen: {e}"))?;
-        let now = chrono::Local::now();
-        let prefix = output_dir
-            .join(game.slug())
-            .join(now.format("%Y-%m-%d").to_string())
-            .join(now.format("%H-%M-%S").to_string());
-        match Recorder::start(&cast, &prefix, settings) {
+        match Recorder::start(&cast, prefix, settings) {
             Ok(recorder) => {
                 tracing::info!("recording {:?} to {}_NNN.mkv", cast.size, prefix.display());
                 Ok(Self {

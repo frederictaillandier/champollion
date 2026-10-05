@@ -15,6 +15,9 @@ Environment=CHAMPOLLION_CLAUDE=%h/.local/bin/claude
 #Environment=CHAMPOLLION_OUTPUT_DIR=%h/champollion/recordings
 #Environment=CHAMPOLLION_FRAMERATE=15
 #Environment=CHAMPOLLION_QP=20
+# Close the game at 50 cards due, until fewer than 10 are (0 never closes it):
+#Environment=CHAMPOLLION_LOCK_AT=50
+#Environment=CHAMPOLLION_UNLOCK_BELOW=10
 Restart=on-failure
 RestartSec=5
 Nice=10

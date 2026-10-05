@@ -73,6 +73,13 @@ pub struct Card {
     pub sightings: Vec<CardSighting>,
 }
 
+/// `GET /cards/due/count`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DueCount {
+    /// Cards due now and not flagged, new ones included.
+    pub due: u64,
+}
+
 /// A sighting as shown on a card.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CardSighting {

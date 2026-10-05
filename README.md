@@ -56,8 +56,8 @@ WireGuard tunnel on.
 - Frames stay on the GPU and are encoded to H.265 by NVENC (falls back to
   x265 on the CPU without an NVIDIA GPU). Default: 15 fps, constant quality
   QP 20, which keeps small text sharp.
-- Recordings are split into 10-minute Matroska files, which stay readable if
-  the daemon is killed:
+- Recordings are split into 2-minute Matroska files, which stay readable if
+  the daemon is killed, and whose text is read once they are finished:
   `~/.local/share/champollion/recordings/1771300-kingdom-come-deliverance-ii/<date>/<time>_NNN.mkv`
 
 Requires GStreamer 1.24 with the `pipewire`, `gl` and `nvcodec` plugins.
@@ -80,15 +80,19 @@ variables in the unit: `CHAMPOLLION_APP_ID` (another Steam game),
 
 ### Reading the text
 
-While the game is not running, the daemon reads the finished recordings
-with the [Tesseract](https://github.com/tesseract-ocr/tesseract) OCR library (through the `tesseract` crate), oldest
-first, at low priority. It pauses as soon as the game starts again.
+The daemon reads the finished recordings with the
+[Tesseract](https://github.com/tesseract-ocr/tesseract) OCR library
+(through the `tesseract` crate), oldest first, while the game runs too: its
+threads are `SCHED_IDLE`, so they only get the CPU time the game leaves,
+and read one frame at a time while it runs. This takes about half a CPU
+thread on a Ryzen 5 5600X.
 
 ```sh
 sudo apt install libtesseract-dev libleptonica-dev tesseract-ocr-ces   # Czech; see --ocr-lang
 ```
 
-It samples 1 frame per second, reads 2 frames at a time (`--ocr-workers`;
+It samples 1 frame per second, reads 2 frames at a time when the game is not
+running (`--ocr-workers`;
 each worker loads its own copy of the language model) and keeps words made of letters (2+
 characters, OCR confidence >= 70). Output in
 `~/.local/share/champollion/text/<game>/`:
@@ -138,6 +142,22 @@ Files next to `vocabulary.tsv`:
   made into cards, and of `cards.jsonl` sent. Delete one to redo that step;
   the backend ignores what it already has.
 
+### Time to study
+
+With `--backend-url`, the daemon asks the backend every 30 seconds how many
+cards are due (new ones included). Once 50 are (`--lock-at`,
+`CHAMPOLLION_LOCK_AT`; 0 turns this off), it closes the game: a "Time to
+study" notification shows, the game and everything Steam's `reaper`
+started for it get SIGTERM, then SIGKILL 10 seconds later, without saving.
+The game stays locked, closed again each time it is started, until fewer
+than 10 cards are due (`--unlock-below`, `CHAMPOLLION_UNLOCK_BELOW`); the
+tray shows how many are. The lock survives a restart of the daemon
+(`~/.local/state/champollion/locked`). While the backend cannot be reached,
+the game can be played.
+
+A word counts a few minutes after it was on screen: its 2-minute file is
+finished, then read, then made into a card within a minute or so.
+
 Options: `--claude` (path of the `claude` executable), `--cards-model`
 (default `sonnet`), `--no-cards` (only send the cards already made).
 
@@ -167,6 +187,7 @@ reach it are WireGuard peers (this PC at `10.0.0.50`, the phone at
 | `GET /health` | `ok` |
 | `POST /cards` | `{"cards": [NewCard]}` → `{"added_cards": n, "added_sightings": n, "updated_sightings": n}`; known cards are kept, known sightings (same card, form and frame) take the sentence, its translation and the definition sent |
 | `GET /cards/due?limit=100` | cards due now with their sightings, those already reviewed first, then new ones, each in random order |
+| `GET /cards/due/count` | `{"due": n}`: how many cards are due now, new ones included |
 | `POST /reviews` | `{"reviews": [Review]}` → `{"applied": n}`; a review id sent twice counts once |
 | `POST /flags` | `{"flags": [Flag]}` → `{"applied": n}`; flagged cards are no longer due |
 

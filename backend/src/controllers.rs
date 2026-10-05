@@ -36,6 +36,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health::health))
         .route("/cards", post(cards::add))
         .route("/cards/due", get(cards::due))
+        .route("/cards/due/count", get(cards::due_count))
         .route("/reviews", post(reviews::add))
         .route("/flags", post(flags::add))
         .with_state(state)

@@ -1,4 +1,5 @@
-//! Reads the text in finished recordings while the game is not running.
+//! Reads the text in finished recordings, while the game runs too, with the
+//! CPU time the game leaves.
 
 mod ocr;
 
@@ -31,9 +32,13 @@ pub struct Config {
     pub ocr: Ocr,
 }
 
-/// Background thread reading recordings; it only works while `allowed`.
+/// Background thread reading recordings.
 pub struct Indexer {
-    pub allowed: Arc<AtomicBool>,
+    /// Whether the game runs: only one frame is read at a time then.
+    pub playing: Arc<AtomicBool>,
+    /// File prefix of the recording being made (see `record::file_prefix`),
+    /// whose last file is not finished.
+    pub recording: Arc<Mutex<Option<PathBuf>>>,
     /// What the indexer is doing, for the tray; `None` when idle.
     pub status: Arc<Mutex<Option<String>>>,
     handle: thread::JoinHandle<()>,
@@ -41,12 +46,14 @@ pub struct Indexer {
 
 impl Indexer {
     pub fn spawn(config: Config, stop: Arc<AtomicBool>) -> Self {
-        let allowed = Arc::new(AtomicBool::new(false));
+        let playing = Arc::new(AtomicBool::new(false));
+        let recording = Arc::new(Mutex::new(None));
         let status = Arc::new(Mutex::new(None));
         let ctx = Context {
             config,
             stop,
-            allowed: allowed.clone(),
+            playing: playing.clone(),
+            recording: recording.clone(),
             status: status.clone(),
         };
         let handle = thread::Builder::new()
@@ -54,7 +61,8 @@ impl Indexer {
             .spawn(move || ctx.run())
             .expect("spawn text indexer thread");
         Self {
-            allowed,
+            playing,
+            recording,
             status,
             handle,
         }
@@ -68,7 +76,8 @@ impl Indexer {
 struct Context {
     config: Config,
     stop: Arc<AtomicBool>,
-    allowed: Arc<AtomicBool>,
+    playing: Arc<AtomicBool>,
+    recording: Arc<Mutex<Option<PathBuf>>>,
     status: Arc<Mutex<Option<String>>>,
 }
 
@@ -194,6 +203,7 @@ struct FrameText<'a> {
 
 impl Context {
     fn run(self) {
+        run_when_idle();
         if let Err(e) = self.config.ocr.check() {
             tracing::warn!("not reading text from recordings: {e}");
             return;
@@ -204,11 +214,6 @@ impl Context {
             .collect();
         let mut games: HashMap<String, GameText> = HashMap::new();
         while !self.stop.load(Ordering::Relaxed) {
-            if !self.allowed.load(Ordering::Relaxed) {
-                self.set_status(None);
-                thread::sleep(Duration::from_secs(1));
-                continue;
-            }
             let Some(video) = self.next_video() else {
                 self.set_status(None);
                 self.sleep(Duration::from_secs(30));
@@ -247,10 +252,12 @@ impl Context {
         }
     }
 
-    /// The oldest recording not read yet. Names sort chronologically, and
-    /// reading in order makes "first seen" in the vocabulary accurate.
+    /// The oldest recording not read yet, leaving out the file being
+    /// recorded. Names sort chronologically, and reading in order makes
+    /// "first seen" in the vocabulary accurate.
     fn next_video(&self) -> Option<Video> {
         let root = &self.config.recordings_dir;
+        let recording = self.recording.lock().unwrap().clone();
         for game_dir in read_dir_sorted(root).into_iter().filter(|p| p.is_dir()) {
             let game = game_dir.file_name()?.to_string_lossy().into_owned();
             let processed = GameText::processed(&self.config.text_dir.join(&game));
@@ -258,10 +265,15 @@ impl Context {
                 .into_iter()
                 .filter(|p| p.is_dir())
             {
-                for path in read_dir_sorted(&day) {
-                    if path.extension().is_none_or(|e| e != "mkv") {
-                        continue;
-                    }
+                let files: Vec<PathBuf> = read_dir_sorted(&day)
+                    .into_iter()
+                    .filter(|p| p.extension().is_some_and(|e| e == "mkv"))
+                    .collect();
+                let unfinished = recording
+                    .as_deref()
+                    .and_then(|prefix| being_recorded(&files, prefix));
+                for path in files.iter().filter(|p| Some(*p) != unfinished) {
+                    let path = path.clone();
                     let id = path.strip_prefix(root).ok()?.to_string_lossy().into_owned();
                     if !processed.contains(&id) {
                         return Some(Video { path, id, game });
@@ -280,9 +292,10 @@ impl Context {
     ) -> Result<Outcome, String> {
         let rate = self.config.samples_per_second.max(1);
         // decodebin picks the GPU decoder (nvh265dec) when there is one.
+        // Frames are dropped before being converted, which is costly.
         let pipeline = gst::parse::launch(&format!(
-            "filesrc name=src ! decodebin ! videoconvert ! videorate \
-             ! video/x-raw,format=RGB,framerate={rate}/1 \
+            "filesrc name=src ! decodebin ! videorate ! video/x-raw,framerate={rate}/1 \
+             ! videoconvert ! video/x-raw,format=RGB \
              ! appsink name=frames sync=false max-buffers=2"
         ))
         .map_err(|e| e.to_string())?
@@ -323,11 +336,19 @@ impl Context {
 
         thread::scope(|scope| {
             let decoder = scope.spawn(move || self.decode(pipeline, sink, frames_tx));
-            for reader in readers.iter_mut() {
+            for (i, reader) in readers.iter_mut().enumerate() {
                 let frames_rx = Arc::clone(&frames_rx);
                 let read_tx = read_tx.clone();
                 scope.spawn(move || {
                     loop {
+                        // One reader keeps up with the game; more would
+                        // compete with it for the CPU caches.
+                        while i > 0
+                            && self.playing.load(Ordering::Relaxed)
+                            && !self.stop.load(Ordering::Relaxed)
+                        {
+                            thread::sleep(Duration::from_millis(500));
+                        }
                         let Ok(frame) = frames_rx.lock().unwrap().recv() else {
                             break;
                         };
@@ -370,7 +391,7 @@ impl Context {
         })
     }
 
-    /// Pulls frames from the pipeline, pausing it while reading is not allowed.
+    /// Pulls frames from the pipeline.
     fn decode(
         &self,
         pipeline: &gst::Pipeline,
@@ -379,17 +400,6 @@ impl Context {
     ) -> Result<Outcome, String> {
         let mut index = 0;
         loop {
-            if !self.allowed.load(Ordering::Relaxed) {
-                let _ = pipeline.set_state(gst::State::Paused);
-                self.set_status(Some("Reading text paused while playing".into()));
-                while !self.allowed.load(Ordering::Relaxed) {
-                    if self.stop.load(Ordering::Relaxed) {
-                        return Ok(Outcome::Interrupted);
-                    }
-                    thread::sleep(Duration::from_millis(500));
-                }
-                let _ = pipeline.set_state(gst::State::Playing);
-            }
             if self.stop.load(Ordering::Relaxed) {
                 return Ok(Outcome::Interrupted);
             }
@@ -571,6 +581,33 @@ fn to_frame(sample: &gst::Sample, index: u64) -> Option<Frame> {
     })
 }
 
+/// The file of `files` still being written by the recording whose files are
+/// `<prefix>_NNN.mkv`: its last one.
+fn being_recorded<'a>(files: &'a [PathBuf], prefix: &Path) -> Option<&'a PathBuf> {
+    let name = format!("{}_", prefix.file_name()?.to_string_lossy());
+    files
+        .iter()
+        .filter(|f| {
+            f.parent() == prefix.parent()
+                && f.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with(&name))
+        })
+        .max()
+}
+
+/// Lets the game have the CPU first: this thread, and the threads it starts,
+/// only run on cores nothing else wants.
+fn run_when_idle() {
+    let param = libc::sched_param { sched_priority: 0 };
+    // SAFETY: sched_setscheduler(2) on the calling thread, with a valid param.
+    if unsafe { libc::sched_setscheduler(0, libc::SCHED_IDLE, &param) } != 0 {
+        tracing::warn!(
+            "could not lower the priority of reading text: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+}
+
 /// Reads `skip-screens.txt`, creating it with defaults the first time.
 fn load_skip_screens(dir: &Path) -> Vec<HashSet<String>> {
     let path = dir.join("skip-screens.txt");
@@ -638,6 +675,32 @@ mod tests {
         // One menu word in a dialogue line is not the menu.
         assert!(!game.is_skipped_screen(&screen(&["Pokračovat", "do", "Skalice"])));
         let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn leaves_out_the_file_being_recorded() {
+        let day = PathBuf::from("/r/game/2026-10-05");
+        let files = [
+            "10-00-00_000.mkv",
+            "10-00-00_001.mkv",
+            "11-30-00_000.mkv",
+            "11-30-00_001.mkv",
+        ]
+        .map(|f| day.join(f));
+        assert_eq!(
+            being_recorded(&files, &day.join("11-30-00")),
+            Some(&day.join("11-30-00_001.mkv"))
+        );
+        assert_eq!(
+            being_recorded(&files[..2], &day.join("10-00-00")),
+            Some(&day.join("10-00-00_001.mkv"))
+        );
+        // Not written yet, or in another day's directory.
+        assert_eq!(being_recorded(&files, &day.join("12-00-00")), None);
+        assert_eq!(
+            being_recorded(&files, Path::new("/r/game/2026-10-06/11-30-00")),
+            None
+        );
     }
 
     #[test]

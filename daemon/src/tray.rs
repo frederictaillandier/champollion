@@ -22,6 +22,12 @@ pub enum State {
     Failed(String),
     /// Reading text from recordings, with a progress description.
     Reading(String),
+    /// Too many cards are due: the game is closed until fewer than
+    /// `unlock_below` are.
+    Locked {
+        due: u64,
+        unlock_below: u64,
+    },
 }
 
 /// The icon in the desktop's top bar, with its right-click menu.
@@ -43,6 +49,12 @@ impl Tray {
             State::Paused => "Recording paused".into(),
             State::Failed(reason) => format!("Recording failed: {reason}"),
             State::Reading(progress) => progress.clone(),
+            State::Locked { due, unlock_below } => {
+                format!(
+                    "Time to study: {due} cards due, {} unlocks under {unlock_below}",
+                    self.game
+                )
+            }
         }
     }
 
@@ -125,7 +137,8 @@ const RED: [u8; 3] = [0xe0, 0x1b, 0x24];
 const GREY: [u8; 3] = [0x9a, 0x99, 0x96];
 
 /// Draws the tray icon: a red dot while recording, a grey ring while
-/// waiting, grey bars when paused and a red ring after a failure.
+/// waiting, grey bars when paused, a red ring after a failure and red bars
+/// while the game is locked.
 fn draw_icon(state: &State, size: i32) -> Icon {
     let s = size as f32;
     let center = s / 2.0;
@@ -144,13 +157,18 @@ fn draw_icon(state: &State, size: i32) -> Icon {
                 State::Recording { .. } => (RED, disc),
                 State::Waiting | State::Reading(_) => (GREY, disc - hole),
                 State::Failed(_) => (RED, disc - hole),
-                State::Paused => {
+                State::Paused | State::Locked { .. } => {
                     let bar_w = s * 0.2;
                     let gap = s * 0.14;
                     let in_y = (py - center).abs() < radius;
                     let left = (px - (center - gap / 2.0 - bar_w / 2.0)).abs() < bar_w / 2.0;
                     let right = (px - (center + gap / 2.0 + bar_w / 2.0)).abs() < bar_w / 2.0;
-                    (GREY, if in_y && (left || right) { 1.0 } else { 0.0 })
+                    let color = if matches!(state, State::Paused) {
+                        GREY
+                    } else {
+                        RED
+                    };
+                    (color, if in_y && (left || right) { 1.0 } else { 0.0 })
                 }
             };
             data.extend([(alpha * 255.0) as u8, color[0], color[1], color[2]]);

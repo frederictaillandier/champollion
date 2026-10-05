@@ -1,6 +1,7 @@
 mod cards;
 mod extract;
 mod record;
+mod study;
 mod tray;
 
 use std::path::PathBuf;
@@ -18,6 +19,9 @@ use tray::{Command, State, Tray};
 
 /// Kingdom Come: Deliverance II.
 const DEFAULT_APP_ID: u32 = 1771300;
+
+/// Time a locked game gets to quit after being asked, before being killed.
+const QUIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Records the screen while a Steam game runs so its on-screen text can be studied.
 #[derive(Parser, Debug)]
@@ -40,8 +44,9 @@ struct Args {
     #[arg(long, default_value_t = 20, env = "CHAMPOLLION_QP")]
     qp: u32,
 
-    /// Minutes of video per file
-    #[arg(long, default_value_t = 10, env = "CHAMPOLLION_SEGMENT_MINUTES")]
+    /// Minutes of video per file; text is read from a file once it is
+    /// finished
+    #[arg(long, default_value_t = 2, env = "CHAMPOLLION_SEGMENT_MINUTES")]
     segment_minutes: u64,
 
     /// Where the text read from recordings is stored
@@ -87,6 +92,15 @@ struct Args {
     #[arg(long, env = "CHAMPOLLION_NO_CARDS")]
     no_cards: bool,
 
+    /// Cards due at which the game is closed and kept closed; 0 never
+    /// closes it. Needs `--backend-url`
+    #[arg(long, default_value_t = 50, env = "CHAMPOLLION_LOCK_AT")]
+    lock_at: u64,
+
+    /// Cards due under which the game can be played again
+    #[arg(long, default_value_t = 10, env = "CHAMPOLLION_UNLOCK_BELOW")]
+    unlock_below: u64,
+
     /// Seconds between two checks for the game
     #[arg(long, default_value_t = 2.0, env = "CHAMPOLLION_POLL_INTERVAL")]
     poll_interval: f64,
@@ -98,6 +112,14 @@ fn data_dir() -> PathBuf {
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
         .unwrap_or_else(|| PathBuf::from("."));
     data.join("champollion")
+}
+
+fn state_dir() -> PathBuf {
+    let state = std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state")))
+        .unwrap_or_else(|| PathBuf::from("."));
+    state.join("champollion")
 }
 
 /// Waits until `deadline` for a command from the tray, waking early when a
@@ -227,6 +249,13 @@ fn main() {
         )
     });
 
+    let due_cards = args
+        .backend_url
+        .as_ref()
+        .filter(|_| args.lock_at > 0)
+        .map(|url| study::DueCards::spawn(url.trim_end_matches('/'), Arc::clone(&stop)));
+    let mut lock = study::Lock::load(args.lock_at, args.unlock_below, state_dir().join("locked"));
+
     let (commands_tx, commands) = mpsc::channel();
     let tray = rt.block_on(ksni::TrayMethods::spawn(Tray {
         state: State::Waiting,
@@ -247,7 +276,8 @@ fn main() {
         }
     };
 
-    let mut recording: Option<Recording> = None;
+    // With its file prefix.
+    let mut recording: Option<(Recording, PathBuf)> = None;
     let mut paused = false;
     // Why the last attempt to record failed. Kept until the game restarts so
     // a cancelled screen-sharing dialog is not shown again in a loop.
@@ -256,12 +286,15 @@ fn main() {
     // Logged once per launch, while Steam is still in front of the game.
     let mut waiting_for_window = false;
     let mut shown = String::new();
+    // The locked game being closed: its `reaper`, when it was asked to quit,
+    // and whether it was killed since.
+    let mut closing: Option<(u32, Instant, bool)> = None;
 
     while !stop.load(Ordering::Relaxed) {
         let tick = Instant::now();
         let game = steam::running_game(args.app_id);
 
-        if let Some(rec) = &recording {
+        if let Some((rec, _)) = &recording {
             if game.is_none() || paused {
                 tracing::info!(
                     "{}",
@@ -271,15 +304,45 @@ fn main() {
                         "game stopped"
                     }
                 );
-                recording.take().unwrap().stop(&rt, true);
+                recording.take().unwrap().0.stop(&rt, true);
             } else if let Some(reason) = rec.failure() {
                 tracing::error!("recording failed: {reason}");
-                recording.take().unwrap().stop(&rt, false);
+                recording.take().unwrap().0.stop(&rt, false);
                 failure = Some(reason);
             }
         }
 
+        let due = due_cards.as_ref().and_then(|d| *d.due.lock().unwrap());
+        let locked = lock.update(due).then(|| due.unwrap_or(0));
+        match (&game, locked) {
+            (Some(game), Some(due)) => match &mut closing {
+                Some((pid, asked, killed)) if *pid == game.launcher_pid => {
+                    if !*killed && asked.elapsed() >= QUIT_TIMEOUT {
+                        tracing::warn!("{} did not quit, killing it", game.name);
+                        game.signal(libc::SIGKILL);
+                        *killed = true;
+                    }
+                }
+                _ => {
+                    tracing::info!("{due} cards are due, closing {}", game.name);
+                    let body = format!(
+                        "{due} cards are due. {} stays closed until fewer than {} are.",
+                        game.name,
+                        lock.unlock_below()
+                    );
+                    if let Err(e) = rt.block_on(study::notify("Time to study", &body)) {
+                        tracing::warn!("could not show a notification: {e}");
+                    }
+                    game.signal(libc::SIGTERM);
+                    closing = Some((game.launcher_pid, Instant::now(), false));
+                }
+            },
+            _ => closing = None,
+        }
+
         match &game {
+            // Closed above, not worth recording.
+            Some(_) if locked.is_some() => {}
             None => {
                 failure = None;
                 waiting_for_window = false;
@@ -299,8 +362,13 @@ fn main() {
             }
             Some(game) if recording.is_none() && failure.is_none() && !paused => {
                 tracing::info!("starting to record {} ({})", game.name, game.app_id);
-                match Recording::start(&rt, game, &output_dir, &settings) {
-                    Ok(rec) => recording = Some(rec),
+                let prefix = record::file_prefix(&output_dir, game);
+                // Before the first file exists, so it is not read unfinished.
+                if let Some(indexer) = &indexer {
+                    *indexer.recording.lock().unwrap() = Some(prefix.clone());
+                }
+                match Recording::start(&rt, &prefix, &settings) {
+                    Ok(rec) => recording = Some((rec, prefix)),
                     Err(e) => {
                         tracing::error!("{e}");
                         failure = Some(e);
@@ -312,7 +380,11 @@ fn main() {
 
         let state = match (&recording, &failure) {
             _ if paused => State::Paused,
-            (Some(rec), _) => State::Recording { since: rec.since },
+            (Some((rec, _)), _) => State::Recording { since: rec.since },
+            _ if let Some(due) = locked => State::Locked {
+                due,
+                unlock_below: lock.unlock_below(),
+            },
             (None, Some(reason)) => State::Failed(reason.clone()),
             (None, None) => match indexer
                 .as_ref()
@@ -322,10 +394,9 @@ fn main() {
                 None => State::Waiting,
             },
         };
-        // Reading text is heavy on the CPU, so it only runs while the game
-        // is not.
         if let Some(indexer) = &indexer {
-            indexer.allowed.store(game.is_none(), Ordering::Relaxed);
+            indexer.playing.store(game.is_some(), Ordering::Relaxed);
+            *indexer.recording.lock().unwrap() = recording.as_ref().map(|(_, p)| p.clone());
         }
         let key = match &state {
             State::Waiting => "waiting".to_owned(),
@@ -333,6 +404,7 @@ fn main() {
             State::Paused => "paused".to_owned(),
             State::Failed(reason) => format!("failed: {reason}"),
             State::Reading(progress) => progress.clone(),
+            State::Locked { due, .. } => format!("locked: {due}"),
         };
         if key != shown {
             show(state);
@@ -350,7 +422,7 @@ fn main() {
     }
 
     tracing::info!("shutting down");
-    if let Some(rec) = recording {
+    if let Some((rec, _)) = recording {
         rec.stop(&rt, true);
     }
     if let Some(indexer) = indexer {
@@ -358,6 +430,9 @@ fn main() {
     }
     if let Some(cards) = cards {
         let _ = cards.join();
+    }
+    if let Some(due_cards) = due_cards {
+        due_cards.join();
     }
     drop(commands_tx);
 }

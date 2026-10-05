@@ -69,6 +69,13 @@ pub async fn due(conn: &mut PgConnection, limit: i64) -> Result<Vec<DueCard>, sq
     .await
 }
 
+/// How many cards are due now and not flagged.
+pub async fn due_count(conn: &mut PgConnection) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT count(*) FROM cards WHERE due <= now() AND flagged_at IS NULL")
+        .fetch_one(conn)
+        .await
+}
+
 /// The card's review state, locked until the end of the transaction. None
 /// if there is no such card.
 pub async fn lock_state(

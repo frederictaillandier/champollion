@@ -1,6 +1,6 @@
 use axum::Json;
 use axum::extract::{Query, State};
-use champollion_api::{Card, CardBatch, CardBatchResult};
+use champollion_api::{Card, CardBatch, CardBatchResult, DueCount};
 use serde::Deserialize;
 
 use super::AppState;
@@ -30,4 +30,9 @@ pub async fn due(
     Query(q): Query<DueQuery>,
 ) -> Result<Json<Vec<Card>>, Error> {
     Ok(Json(state.cards.due(q.limit).await?))
+}
+
+/// `GET /cards/due/count`
+pub async fn due_count(State(state): State<AppState>) -> Result<Json<DueCount>, Error> {
+    Ok(Json(state.cards.due_count().await?))
 }

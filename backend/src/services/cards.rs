@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use champollion_api::{Card, CardBatch, CardBatchResult, CardSighting};
+use champollion_api::{Card, CardBatch, CardBatchResult, CardSighting, DueCount};
 use sqlx::PgPool;
 
 use crate::error::Error;
@@ -84,5 +84,15 @@ impl CardService {
                 reps: c.reps,
             })
             .collect())
+    }
+
+    /// How many cards are due now, new ones included; flagged cards are
+    /// left out.
+    pub async fn due_count(&self) -> Result<DueCount, Error> {
+        let mut conn = self.db.acquire().await?;
+        let due = cards::due_count(&mut conn).await?;
+        Ok(DueCount {
+            due: u64::try_from(due).unwrap_or(0),
+        })
     }
 }
