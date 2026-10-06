@@ -13,7 +13,8 @@ to be fixed.
 
 Each time a rating or a flag shows the next card, its word is spoken (the
 backend's ElevenLabs recording, downloaded with the session, so it plays
-offline too). The first card of a session, shown by a sync rather than a
+offline too; each new session downloads its words again, so a word spoken
+again on the backend is heard from the next one). The first card of a session, shown by a sync rather than a
 tap, stays silent; 🔊 under the word plays it again, muted or not. 🔊
 next to ⚑ mutes the words, 🔇 speaks them again.
 
@@ -223,11 +224,13 @@ quota). A word ElevenLabs refuses is skipped until the backend restarts.
 
 The default model is `eleven_turbo_v2_5` (`CHAMPOLLION_ELEVENLABS_MODEL`),
 which is told the card's language: otherwise a short word can be read as
-English (`most`). The default voice is a premade one, `JBFqnCBsd6RMkjVDRZzb`
+English (`most`); a word of one or two letters is also sent with a period
+(`do.`), as alone it can still be read as English. The default voice is a premade one, `JBFqnCBsd6RMkjVDRZzb`
 (`CHAMPOLLION_ELEVENLABS_VOICE`); a native voice from ElevenLabs' voice
 library sounds better. Words already spoken keep their voice; to make them
 again, delete their rows (`DELETE FROM pronunciations WHERE voice = '...'`)
-and restart the backend.
+and restart the backend. A single bad take can also be replaced by another
+MP3 (`UPDATE pronunciations SET audio = ... WHERE card_id = ...`).
 
 ### Deploy
 

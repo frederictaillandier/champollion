@@ -39,11 +39,11 @@ object Sync {
         }
         // Topping the session up after each rating would make it endless
         // while the backend has more cards due than a session holds.
-        val due = if (context.session.data.first().queue.isEmpty()) {
-            Backend.dueCards(SESSION_SIZE)
-        } else {
-            emptyList()
-        }
+        val newSession = context.session.data.first().queue.isEmpty()
+        val due = if (newSession) Backend.dueCards(SESSION_SIZE) else emptyList()
+        // A new session's words are all downloaded again, so a word spoken
+        // again on the backend is heard in the next session.
+        if (newSession) Pronunciations.clear(context)
         val merged = context.session.updateData { it.merge(due) }
         Pronunciations.download(context, merged.cards)
         context.session.updateData {

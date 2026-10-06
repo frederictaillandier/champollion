@@ -60,8 +60,9 @@ impl ElevenLabs {
             "{}/v1/text-to-speech/{}?output_format=mp3_44100_64",
             self.url, self.voice
         );
+        let text = sayable(text);
         let request = Request {
-            text,
+            text: &text,
             model_id: &self.model,
             language_code: iso_639_1(lang),
         };
@@ -77,6 +78,17 @@ impl ElevenLabs {
                 }
                 e => SpeakError::Service(e.to_string()),
             })
+    }
+}
+
+/// `text` as sent to be spoken. A bare word of one or two letters can be
+/// read in English even with the language given ("do" as /duː/): followed by
+/// a period, it is read as a word of `lang`.
+fn sayable(text: &str) -> String {
+    if text.chars().count() <= 2 {
+        format!("{text}.")
+    } else {
+        text.to_owned()
     }
 }
 
@@ -104,6 +116,13 @@ fn iso_639_1(tesseract: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ends_very_short_words_with_a_period() {
+        assert_eq!(sayable("do"), "do.");
+        assert_eq!(sayable("už"), "už.");
+        assert_eq!(sayable("ten"), "ten");
+    }
 
     #[test]
     fn maps_tesseract_languages() {

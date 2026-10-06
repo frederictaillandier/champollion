@@ -47,6 +47,11 @@ object Pronunciations {
         }
     }
 
+    /** Deletes every word downloaded. */
+    fun clear(context: Context) {
+        dir(context).listFiles()?.forEach { it.delete() }
+    }
+
     /** Whether the card's word is on the phone. */
     fun has(context: Context, cardId: Long): Boolean = file(context, cardId).exists()
 
