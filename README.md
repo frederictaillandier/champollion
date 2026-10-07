@@ -224,8 +224,9 @@ quota). A word ElevenLabs refuses is skipped until the backend restarts.
 
 The default model is `eleven_turbo_v2_5` (`CHAMPOLLION_ELEVENLABS_MODEL`),
 which is told the card's language: otherwise a short word can be read as
-English (`most`); a word of one or two letters is also sent with a period
-(`do.`), as alone it can still be read as English. The default voice is a premade one, `JBFqnCBsd6RMkjVDRZzb`
+English (`most`); every word is also sent with a period (`do.`, `jen.`), as
+alone a short word can still be read as English, and a longer one can run
+past its end (`jena` for `jen`, `zašukat si si`). The default voice is a premade one, `JBFqnCBsd6RMkjVDRZzb`
 (`CHAMPOLLION_ELEVENLABS_VOICE`); a native voice from ElevenLabs' voice
 library sounds better. Words already spoken keep their voice; to make them
 again, delete their rows (`DELETE FROM pronunciations WHERE voice = '...'`)

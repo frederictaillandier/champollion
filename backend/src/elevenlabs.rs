@@ -81,15 +81,13 @@ impl ElevenLabs {
     }
 }
 
-/// `text` as sent to be spoken. A bare word of one or two letters can be
-/// read in English even with the language given ("do" as /duː/): followed by
-/// a period, it is read as a word of `lang`.
+/// `text` as sent to be spoken, followed by a period. A bare word of one or
+/// two letters can be read in English even with the language given ("do" as
+/// /duː/), and a longer one can run past its end: a vowel after its last
+/// consonant ("jen" as "jena"), or its last word said twice ("zašukat si si").
+/// The period makes it a whole sentence of `lang`.
 fn sayable(text: &str) -> String {
-    if text.chars().count() <= 2 {
-        format!("{text}.")
-    } else {
-        text.to_owned()
-    }
+    format!("{text}.")
 }
 
 /// The ISO 639-1 code ElevenLabs takes, of a Tesseract language code.
@@ -118,10 +116,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ends_very_short_words_with_a_period() {
+    fn ends_words_with_a_period() {
         assert_eq!(sayable("do"), "do.");
-        assert_eq!(sayable("už"), "už.");
-        assert_eq!(sayable("ten"), "ten");
+        assert_eq!(sayable("jen"), "jen.");
+        assert_eq!(sayable("zašukat si"), "zašukat si.");
     }
 
     #[test]
