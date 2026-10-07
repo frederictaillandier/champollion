@@ -131,9 +131,8 @@ fn parse_tsv(tsv: &str, min_confidence: f32) -> Screen {
 
     let mut lines: Vec<String> = Vec::new();
     for (i, token) in tokens.iter().enumerate() {
-        let same_line = i > 0
-            && tokens[i - 1].paragraph == token.paragraph
-            && tokens[i - 1].line == token.line;
+        let same_line =
+            i > 0 && tokens[i - 1].paragraph == token.paragraph && tokens[i - 1].line == token.line;
         match lines.last_mut() {
             Some(line) if same_line => {
                 line.push(' ');
