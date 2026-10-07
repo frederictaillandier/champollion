@@ -32,14 +32,14 @@ impl PronunciationService {
         }
     }
 
-    /// The MP3 of a card's dictionary form, if it was made.
-    pub async fn audio(&self, card_id: i64) -> Result<Option<Vec<u8>>, Error> {
+    /// The MP3 of a card's level (its dictionary form at 1), if it was made.
+    pub async fn audio(&self, card_id: i64, level: i16) -> Result<Option<Vec<u8>>, Error> {
         let mut conn = self.db.acquire().await?;
-        Ok(pronunciations::audio(&mut conn, card_id).await?)
+        Ok(pronunciations::audio(&mut conn, card_id, level).await?)
     }
 
     /// Makes the missing pronunciations now, not at the next round: cards
-    /// were added.
+    /// or forms were added.
     pub fn wake(&self) {
         self.wake.notify_one();
     }
@@ -57,7 +57,7 @@ impl PronunciationService {
         );
         let service = self.clone();
         tokio::spawn(async move {
-            // Words ElevenLabs refused, not asked again until a restart.
+            // Card levels ElevenLabs refused, not asked again until a restart.
             let mut refused = HashSet::new();
             let mut failing = false;
             loop {
@@ -83,16 +83,16 @@ impl PronunciationService {
         });
     }
 
-    /// Speaks every card without a pronunciation; returns how many.
+    /// Speaks every card level without a pronunciation; returns how many.
     async fn speak_missing(
         &self,
         elevenlabs: &Arc<ElevenLabs>,
-        refused: &mut HashSet<i64>,
+        refused: &mut HashSet<(i64, i16)>,
     ) -> Result<usize, String> {
         let mut made = 0;
         loop {
             let mut conn = self.db.acquire().await.map_err(|e| e.to_string())?;
-            let skip: Vec<i64> = refused.iter().copied().collect();
+            let skip: Vec<(i64, i16)> = refused.iter().copied().collect();
             let cards = pronunciations::missing(&mut conn, &skip, BATCH)
                 .await
                 .map_err(|e| e.to_string())?;
@@ -101,15 +101,15 @@ impl PronunciationService {
             }
             for card in cards {
                 let client = Arc::clone(elevenlabs);
-                let (lemma, lang) = (card.lemma.clone(), card.lang.clone());
-                let spoken = tokio::task::spawn_blocking(move || client.speak(&lemma, &lang))
+                let (text, lang) = (card.text.clone(), card.lang.clone());
+                let spoken = tokio::task::spawn_blocking(move || client.speak(&text, &lang))
                     .await
                     .map_err(|e| e.to_string())?;
                 match spoken {
                     Ok(audio) => {
                         pronunciations::upsert(
                             &mut conn,
-                            card.id,
+                            &card,
                             &audio,
                             &elevenlabs.voice,
                             &elevenlabs.model,
@@ -119,8 +119,8 @@ impl PronunciationService {
                         made += 1;
                     }
                     Err(SpeakError::Text(e)) => {
-                        tracing::warn!("could not speak {:?}: {e}", card.lemma);
-                        refused.insert(card.id);
+                        tracing::warn!("could not speak {:?}: {e}", card.text);
+                        refused.insert((card.id, card.level));
                     }
                     Err(SpeakError::Service(e)) => return Err(e),
                 }

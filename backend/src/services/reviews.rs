@@ -23,14 +23,15 @@ impl ReviewService {
         let mut tx = self.db.begin().await?;
         let mut applied = 0;
         for review in &reviews {
-            let Some(state) = cards::lock_state(&mut tx, review.card_id).await? else {
+            let Some((state, next_level)) = cards::lock_state(&mut tx, review.card_id).await?
+            else {
                 tracing::warn!("review of unknown card {}", review.card_id);
                 continue;
             };
             if !reviews::insert(&mut tx, review).await? {
                 continue;
             }
-            let (next, due) = state.review(review.rating, review.reviewed_at);
+            let (next, due) = state.review(review.rating, review.reviewed_at, next_level);
             cards::set_state(&mut tx, review.card_id, &next, due).await?;
             applied += 1;
         }

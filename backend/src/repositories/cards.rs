@@ -17,6 +17,10 @@ pub struct DueCard {
     pub translation: String,
     pub due: DateTime<Utc>,
     pub reps: i32,
+    pub level: i16,
+    /// The form of the card's level and its translation, none at level 1.
+    pub form: Option<String>,
+    pub form_translation: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -25,6 +29,8 @@ struct StateRow {
     ease: f64,
     reps: i32,
     lapses: i32,
+    level: i16,
+    next_level: bool,
 }
 
 /// Adds the card, unless one has the same language, lemma and part of
@@ -59,9 +65,12 @@ pub async fn id_of(conn: &mut PgConnection, card: &NewCard) -> Result<i64, sqlx:
 /// first, then new ones, each in random order.
 pub async fn due(conn: &mut PgConnection, limit: i64) -> Result<Vec<DueCard>, sqlx::Error> {
     sqlx::query_as(
-        "SELECT id, lang, lemma, pos, gender, translation, due, reps FROM cards
-        WHERE due <= now() AND flagged_at IS NULL
-        ORDER BY (reps > 0 OR lapses > 0) DESC, random()
+        "SELECT c.id, c.lang, c.lemma, c.pos, c.gender, c.translation, c.due, c.reps, c.level,
+            f.form, f.translation AS form_translation
+        FROM cards c
+        LEFT JOIN card_forms f ON f.card_id = c.id AND f.level = c.level
+        WHERE c.due <= now() AND c.flagged_at IS NULL
+        ORDER BY (c.reps > 0 OR c.lapses > 0) DESC, random()
         LIMIT $1",
     )
     .bind(limit)
@@ -76,23 +85,30 @@ pub async fn due_count(conn: &mut PgConnection) -> Result<i64, sqlx::Error> {
         .await
 }
 
-/// The card's review state, locked until the end of the transaction. None
-/// if there is no such card.
+/// The card's review state, locked until the end of the transaction, and
+/// whether it has a form for the level above. None if there is no such card.
 pub async fn lock_state(
     conn: &mut PgConnection,
     id: i64,
-) -> Result<Option<CardState>, sqlx::Error> {
+) -> Result<Option<(CardState, bool)>, sqlx::Error> {
     let row: Option<StateRow> = sqlx::query_as(
-        "SELECT interval_days, ease, reps, lapses FROM cards WHERE id = $1 FOR UPDATE",
+        "SELECT interval_days, ease, reps, lapses, level,
+            EXISTS (SELECT 1 FROM card_forms f WHERE f.card_id = c.id AND f.level = c.level + 1)
+                AS next_level
+        FROM cards c WHERE id = $1 FOR UPDATE OF c",
     )
     .bind(id)
     .fetch_optional(conn)
     .await?;
-    Ok(row.map(|r| CardState {
-        interval_days: r.interval_days,
-        ease: r.ease,
-        reps: r.reps,
-        lapses: r.lapses,
+    Ok(row.map(|r| {
+        let state = CardState {
+            interval_days: r.interval_days,
+            ease: r.ease,
+            reps: r.reps,
+            lapses: r.lapses,
+            level: r.level,
+        };
+        (state, r.next_level)
     }))
 }
 
@@ -103,7 +119,8 @@ pub async fn set_state(
     due: DateTime<Utc>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "UPDATE cards SET due = $2, interval_days = $3, ease = $4, reps = $5, lapses = $6
+        "UPDATE cards SET due = $2, interval_days = $3, ease = $4, reps = $5, lapses = $6,
+            level = $7
         WHERE id = $1",
     )
     .bind(id)
@@ -112,6 +129,7 @@ pub async fn set_state(
     .bind(state.ease)
     .bind(state.reps)
     .bind(state.lapses)
+    .bind(state.level)
     .execute(conn)
     .await?;
     Ok(())

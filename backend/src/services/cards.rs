@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use champollion_api::{Card, CardBatch, CardBatchResult, CardSighting, DueCount};
+use champollion_api::{Card, CardBatch, CardBatchResult, CardForm, CardSighting, DueCount};
 use sqlx::PgPool;
 
 use crate::error::Error;
 use crate::repositories::sightings::Upsert;
-use crate::repositories::{cards, sightings};
+use crate::repositories::{card_forms, cards, sightings};
 
 /// Most cards answered at once.
 const MAX_DUE: i64 = 1000;
@@ -20,7 +20,8 @@ impl CardService {
         Self { db }
     }
 
-    /// Adds each card unless its lemma is known, then its sighting unless
+    /// Adds each card unless its lemma is known, and its forms, replacing
+    /// those it had of the same level. Then its sighting unless
     /// the same form was already seen on the same frame, so a batch can be
     /// sent again safely. A known sighting gets the sentence, its
     /// translation and the definition sent, so cards made again with a
@@ -31,6 +32,7 @@ impl CardService {
             added_cards: 0,
             added_sightings: 0,
             updated_sightings: 0,
+            changed_forms: 0,
         };
         for card in &batch.cards {
             let id = match cards::insert(&mut tx, card).await? {
@@ -40,6 +42,11 @@ impl CardService {
                 }
                 None => cards::id_of(&mut tx, card).await?,
             };
+            for form in &card.forms {
+                if form.level > 1 && card_forms::upsert(&mut tx, id, form).await? {
+                    result.changed_forms += 1;
+                }
+            }
             match sightings::upsert(&mut tx, id, &card.sighting).await? {
                 Upsert::Added => result.added_sightings += 1,
                 Upsert::Updated => result.updated_sightings += 1,
@@ -47,12 +54,13 @@ impl CardService {
             }
         }
         tx.commit().await?;
-        if result.added_sightings > 0 || result.updated_sightings > 0 {
+        if result.added_sightings > 0 || result.updated_sightings > 0 || result.changed_forms > 0 {
             tracing::info!(
-                "added {} cards and {} sightings, updated {} sightings, from {}",
+                "added {} cards and {} sightings, updated {} sightings and {} forms, from {}",
                 result.added_cards,
                 result.added_sightings,
                 result.updated_sightings,
+                result.changed_forms,
                 batch.cards.len()
             );
         }
@@ -82,6 +90,12 @@ impl CardService {
                 translation: c.translation,
                 due: c.due,
                 reps: c.reps,
+                form: c.form.map(|form| CardForm {
+                    level: c.level,
+                    form,
+                    translation: c.form_translation.unwrap_or_default(),
+                }),
+                level: c.level,
             })
             .collect())
     }

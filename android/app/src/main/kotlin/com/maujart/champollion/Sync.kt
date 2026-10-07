@@ -46,8 +46,11 @@ object Sync {
         if (newSession) Pronunciations.clear(context)
         val merged = context.session.updateData { it.merge(due) }
         Pronunciations.download(context, merged.cards)
+        // Counted after the reviews and flags are sent, so the widget only
+        // takes off those made since.
+        val dueAtSync = Backend.dueCount()
         context.session.updateData {
-            it.copy(lastSync = System.currentTimeMillis(), syncError = null)
+            it.copy(dueAtSync = dueAtSync, lastSync = System.currentTimeMillis(), syncError = null)
         }
     }
 

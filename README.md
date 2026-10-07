@@ -18,6 +18,12 @@ again on the backend is heard from the next one). The first card of a session, s
 tap, stays silent; 🔊 under the word plays it again, muted or not. 🔊
 next to ⚑ mutes the words, 🔇 speaks them again.
 
+A card is coloured by its part of speech (nouns red, verbs green,
+adjectives yellow, the rest grey), darker at each level. Above level 1,
+its front shows the word alone, without the sentence; its back, the
+translation and the form of its level (`schovám se`, "I'll hide"), spoken
+as it flips unless muted; 🗣 says it again.
+
 It comes in two versions sharing one review session: one for the home screen,
 and one for the Galaxy Z Flip's cover screen (Flex Window), which Samsung
 requires to be a keyguard widget of at least 352×339 dp with a
@@ -26,7 +32,9 @@ requires to be a keyguard widget of at least 352×339 dp with a
 Reviewing works offline. The phone downloads a session of cards due (up to
 50: those already reviewed first, then new ones, each in random order) and
 keeps them with the ratings and flags not sent yet (`Session`, in a
-DataStore); "N left" counts the session's cards, those failed included.
+DataStore); "N left" counts the session's cards, those failed included, and "N due"
+the cards due on the backend at the last sync, but those succeeded or
+flagged since.
 Once the session is done, WorkManager sends its ratings and flags and
 downloads the next one, as soon as the backend is reachable; it also syncs
 every 30 minutes. A failed card goes back in the session at a random place
@@ -182,7 +190,12 @@ gst-launch-1.0 filesrc location=22-24-25_000.mkv ! decodebin ! videoconvert \
 and schedules their review like Anki (SM-2), but with two ratings and gaps
 starting at 10 minutes: a success multiplies the card's gap by its ease × 1.3
 (10 min, 35 min, 2 h, 8 h, 1.3 days…), a failure brings it back to 10 minutes
-and lowers the ease. There is one card per dictionary
+and lowers the ease. A noun or verb whose gap would go over 7 days moves
+up to level 2, where its back teaches a form of the word (a verb's 1st
+person singular, a noun's accusative singular) and the review starts again
+from 10 minutes and the first ease; cards never move down. There is room
+for more levels: a card moves up to a level once it has a form for it.
+There is one card per dictionary
 form; each word read in a game is a sighting of its card (form, sentence,
 translations), so `král` and `králem` make one card with two sightings. It runs on taillandier.io and only
 listens on its WireGuard address, `10.0.0.1:8090`: the only devices that can
@@ -192,10 +205,10 @@ reach it are WireGuard peers (this PC at `10.0.0.50`, the phone at
 | Request | Body / answer |
 |---|---|
 | `GET /health` | `ok` |
-| `POST /cards` | `{"cards": [NewCard]}` → `{"added_cards": n, "added_sightings": n, "updated_sightings": n}`; known cards are kept, known sightings (same card, form and frame) take the sentence, its translation and the definition sent |
+| `POST /cards` | `{"cards": [NewCard]}` → `{"added_cards": n, "added_sightings": n, "updated_sightings": n, "changed_forms": n}`; known cards are kept but take the forms sent, known sightings (same card, form and frame) take the sentence, its translation and the definition sent |
 | `GET /cards/due?limit=100` | cards due now with their sightings, those already reviewed first, then new ones, each in random order |
 | `GET /cards/due/count` | `{"due": n}`: how many cards are due now, new ones included |
-| `GET /cards/{id}/audio` | the MP3 of the card's dictionary form, or 404 while it is not made |
+| `GET /cards/{id}/audio?level=1` | the MP3 of the card's dictionary form, or of its form of a level above 1; 404 while it is not made |
 | `POST /reviews` | `{"reviews": [Review]}` → `{"applied": n}`; a review id sent twice counts once |
 | `POST /flags` | `{"flags": [Flag]}` → `{"applied": n}`; flagged cards are no longer due |
 
@@ -217,8 +230,8 @@ The code is in layers, each calling only the next:
 ### Pronunciations
 
 With an ElevenLabs API key (`ELEVENLABS_API_KEY`), a background task speaks
-the dictionary form of every card that has no pronunciation yet, the
-soonest due first, and stores the MP3 in the `pronunciations` table. It runs
+the dictionary form and the forms of every card that has no pronunciation
+of them yet, or one of an older text, the soonest due first, and stores the MP3 in the `pronunciations` table. It runs
 when cards are added, and every 5 minutes after a failure (network, key,
 quota). A word ElevenLabs refuses is skipped until the backend restarts.
 

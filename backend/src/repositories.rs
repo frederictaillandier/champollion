@@ -1,6 +1,7 @@
 //! Data access: one module per table, each function one query. They take a
 //! connection, so that services can run several in one transaction.
 
+pub mod card_forms;
 pub mod cards;
 pub mod pronunciations;
 pub mod reviews;

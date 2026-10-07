@@ -74,6 +74,24 @@ class SessionTest {
     }
 
     @Test
+    fun dueCountsOffCardsSucceededOrFlaggedButNotFailed() {
+        val session = Session(dueAtSync = 10).merge(listOf(card(1), card(2), card(3)))
+            .rate(Rating.Succeeded, now).rate(Rating.Failed, now).flag(now)
+        assertEquals(8, session.due())
+        assertEquals(null, Session().due())
+    }
+
+    @Test
+    fun readsCardsWithAndWithoutALevel() {
+        val old = """{"id":1,"lang":"ces","lemma":"rána","pos":"noun","gender":"f",
+            "translation":"blow","due":"2026-10-04T12:00:00Z","reps":0,"sightings":[]}"""
+        assertEquals(1, json.decodeFromString<Card>(old).level)
+        val leveled = old.replace("\"reps\":0", "\"reps\":7,\"level\":2,\"form\":" +
+            "{\"level\":2,\"form\":\"ránu\",\"translation\":\"blow\"}")
+        assertEquals(CardForm(2, "ránu", "blow"), json.decodeFromString<Card>(leveled).form)
+    }
+
+    @Test
     fun readsASessionSavedWithTheOldDelays() {
         val saved = """{"queue":[{"cardId":1,"showAfter":1600000}]}"""
         assertEquals(listOf(Queued(1)), json.decodeFromString<Session>(saved).queue)

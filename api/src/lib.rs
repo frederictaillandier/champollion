@@ -18,7 +18,23 @@ pub struct NewCard {
     pub gender: String,
     /// Short English translation.
     pub translation: String,
+    /// Forms learnt at the levels above 1; the card stays at level 1
+    /// without.
+    #[serde(default)]
+    pub forms: Vec<CardForm>,
     pub sighting: Sighting,
+}
+
+/// A form of a card's word, learnt once the card reaches `level`: the 1st
+/// person singular of a verb (`schovám se`, "I'll hide"), the accusative
+/// singular of a noun (`ránu`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CardForm {
+    /// 2 or more.
+    pub level: i16,
+    pub form: String,
+    /// English translation of the form, e.g. "I'll hide".
+    pub translation: String,
 }
 
 /// Where and how a word was read.
@@ -55,6 +71,9 @@ pub struct CardBatchResult {
     /// Known sightings whose sentence, its translation or definition changed.
     #[serde(default)]
     pub updated_sightings: u64,
+    /// Forms the backend did not have, or had different.
+    #[serde(default)]
+    pub changed_forms: u64,
 }
 
 /// A card to review (`GET /cards/due`).
@@ -69,8 +88,19 @@ pub struct Card {
     pub due: DateTime<Utc>,
     /// Successful reviews in a row; 0 for a new card.
     pub reps: i32,
+    /// 1 for a new card; a card learnt well enough moves up to the level of
+    /// its next form.
+    #[serde(default = "first_level")]
+    pub level: i16,
+    /// The form learnt at the card's level, none at level 1.
+    #[serde(default)]
+    pub form: Option<CardForm>,
     /// Oldest first.
     pub sightings: Vec<CardSighting>,
+}
+
+fn first_level() -> i16 {
+    1
 }
 
 /// `GET /cards/due/count`

@@ -10,8 +10,9 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * How the session's words sound, spoken by ElevenLabs on the backend. Kept on
- * the phone with the session, so they play offline.
+ * How the session's words sound, and the forms of the cards above level 1,
+ * spoken by ElevenLabs on the backend. Kept on the phone with the session, so
+ * they play offline.
  */
 object Pronunciations {
     /**
@@ -23,7 +24,9 @@ object Pronunciations {
 
     private fun dir(context: Context) = File(context.filesDir, "pronunciations")
 
-    private fun file(context: Context, cardId: Long) = File(dir(context), "$cardId.mp3")
+    /** `12.mp3` for the word of card 12, `12-2.mp3` for its form of level 2. */
+    private fun file(context: Context, cardId: Long, level: Int) =
+        File(dir(context), if (level == 1) "$cardId.mp3" else "$cardId-$level.mp3")
 
     /**
      * Downloads the missing pronunciations of [cards], and deletes those of
@@ -34,16 +37,18 @@ object Pronunciations {
         val dir = dir(context).apply { mkdirs() }
         val ids = cards.map { it.id }.toSet()
         dir.listFiles()
-            ?.filter { it.nameWithoutExtension.toLongOrNull() !in ids }
+            ?.filter { it.nameWithoutExtension.substringBefore('-').toLongOrNull() !in ids }
             ?.forEach { it.delete() }
         for (card in cards) {
-            val file = file(context, card.id)
-            if (file.exists()) continue
-            val mp3 = Backend.audio(card.id) ?: continue
-            // Written aside first, so a file found is always whole.
-            val partial = File(dir, "${card.id}.part")
-            partial.writeBytes(mp3)
-            partial.renameTo(file)
+            for (level in listOfNotNull(1, card.form?.level)) {
+                val file = file(context, card.id, level)
+                if (file.exists()) continue
+                val mp3 = Backend.audio(card.id, level) ?: continue
+                // Written aside first, so a file found is always whole.
+                val partial = File(dir, "${file.name}.part")
+                partial.writeBytes(mp3)
+                partial.renameTo(file)
+            }
         }
     }
 
@@ -52,12 +57,16 @@ object Pronunciations {
         dir(context).listFiles()?.forEach { it.delete() }
     }
 
-    /** Whether the card's word is on the phone. */
-    fun has(context: Context, cardId: Long): Boolean = file(context, cardId).exists()
+    /** Whether the card's word, or its form of [level], is on the phone. */
+    fun has(context: Context, cardId: Long, level: Int = 1): Boolean =
+        file(context, cardId, level).exists()
 
-    /** Plays the card's word, if downloaded, and returns once it ends. */
-    suspend fun play(context: Context, card: Card) {
-        val file = file(context, card.id).takeIf { it.exists() } ?: return
+    /**
+     * Plays the card's word, or its form of [level], if downloaded, and
+     * returns once it ends.
+     */
+    suspend fun play(context: Context, card: Card, level: Int = 1) {
+        val file = file(context, card.id, level).takeIf { it.exists() } ?: return
         val player = MediaPlayer()
         try {
             player.setAudioAttributes(

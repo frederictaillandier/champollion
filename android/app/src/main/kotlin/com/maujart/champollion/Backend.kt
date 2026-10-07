@@ -22,7 +22,19 @@ data class Card(
     val translation: String,
     val due: String,
     val reps: Int,
+    /** 1 for a new card; a card learnt well enough moves up to its next form's. */
+    val level: Int = 1,
+    /** The form learnt at the card's level, none at level 1. */
+    val form: CardForm? = null,
     val sightings: List<CardSighting>,
+)
+
+/** A form of the card's word, e.g. `schovám se` ("I'll hide"). */
+@Serializable
+data class CardForm(
+    val level: Int,
+    val form: String,
+    val translation: String,
 )
 
 @Serializable
@@ -52,6 +64,9 @@ data class Review(
 )
 
 @Serializable
+private data class DueCount(val due: Int)
+
+@Serializable
 private data class ReviewBatch(val reviews: List<Review>)
 
 /** A card flagged as having an issue: the backend stops showing it. */
@@ -73,10 +88,17 @@ object Backend {
     suspend fun dueCards(limit: Int): List<Card> =
         json.decodeFromString(request("GET", "/cards/due?limit=$limit", null).decodeToString())
 
-    /** The MP3 of the card's word, or null while the backend has none. */
-    suspend fun audio(cardId: Long): ByteArray? =
+    /** How many cards are due now on the backend, new ones included. */
+    suspend fun dueCount(): Int =
+        json.decodeFromString<DueCount>(request("GET", "/cards/due/count", null).decodeToString()).due
+
+    /**
+     * The MP3 of the card's word (level 1) or of its form of a level above,
+     * or null while the backend has none.
+     */
+    suspend fun audio(cardId: Long, level: Int): ByteArray? =
         try {
-            request("GET", "/cards/$cardId/audio", null)
+            request("GET", "/cards/$cardId/audio?level=$level", null)
         } catch (e: FileNotFoundException) {
             null
         }

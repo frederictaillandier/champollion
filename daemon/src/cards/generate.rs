@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use champollion_api::{NewCard, Sighting};
+use champollion_api::{CardForm, NewCard, Sighting};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use unicode_normalization::UnicodeNormalization;
@@ -62,6 +62,14 @@ form read: no case, number, person, tense or mood (not \"vocative of otec\" \
 nor \"imperative plural\", but \"one's father, or a priest; here someone \
 calls out to him\").
 - sentence_translation: a natural English translation of that sentence.
+- form: the form learnt once the lemma is known, in standard Czech: for a \
+verb, the 1st person singular of its present tense, with its reflexive \
+pronoun (\"schovat se\" → \"schovám se\", \"jít\" → \"jdu\"); for a noun, \
+its accusative singular (\"rána\" → \"ránu\", \"štít\" → \"štít\"), or plural \
+for a noun only used in the plural. Empty for the other parts of speech.
+- form_translation: the form in English: for a verb, with \"I\", in the \
+future for a perfective verb (\"schovám se\" → \"I'll hide\", \"jdu\" → \
+\"I go\"); for a noun, its translation. Empty without a form.
 - keep: false only for words not worth learning as Czech vocabulary: other \
 languages (English UI text), OCR garbage, names of people and places, \
 numbers. Colloquial and archaic Czech forms are real words: keep them.
@@ -171,6 +179,26 @@ struct Answer {
     #[serde(default)]
     sentence: String,
     sentence_translation: String,
+    /// The form learnt at level 2, empty for most parts of speech.
+    #[serde(default)]
+    form: String,
+    #[serde(default)]
+    form_translation: String,
+}
+
+impl Answer {
+    /// The forms of the card above level 1: its level 2 form, if it has one.
+    fn forms(&self) -> Vec<CardForm> {
+        let form = self.form.trim();
+        if form.is_empty() || !matches!(self.pos.as_str(), "noun" | "verb") {
+            return Vec::new();
+        }
+        vec![CardForm {
+            level: 2,
+            form: form.to_owned(),
+            translation: self.form_translation.trim().to_owned(),
+        }]
+    }
 }
 
 #[derive(Deserialize)]
@@ -219,6 +247,7 @@ impl Claude {
                     continue;
                 }
                 let card = NewCard {
+                    forms: answer.forms(),
                     lang: lang.to_owned(),
                     lemma: answer.lemma,
                     pos: answer.pos,
@@ -375,10 +404,12 @@ fn schema() -> serde_json::Value {
                 "definition": string,
                 "sentence": string,
                 "sentence_translation": string,
+                "form": string,
+                "form_translation": string,
             },
             "required": [
                 "id", "keep", "lemma", "pos", "gender", "translation", "definition",
-                "sentence", "sentence_translation"
+                "sentence", "sentence_translation", "form", "form_translation"
             ],
         }}},
         "required": ["cards"],

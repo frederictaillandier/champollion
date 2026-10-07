@@ -14,7 +14,7 @@ pub async fn add(
     Json(batch): Json<CardBatch>,
 ) -> Result<Json<CardBatchResult>, Error> {
     let result = state.cards.add(&batch).await?;
-    if result.added_cards > 0 {
+    if result.added_cards > 0 || result.changed_forms > 0 {
         state.pronunciations.wake();
     }
     Ok(Json(result))
@@ -43,10 +43,24 @@ pub async fn due_count(State(state): State<AppState>) -> Result<Json<DueCount>, 
     Ok(Json(state.cards.due_count().await?))
 }
 
-/// `GET /cards/{id}/audio`: the MP3 of the card's dictionary form, or 404
-/// while it is not made.
-pub async fn audio(State(state): State<AppState>, Path(id): Path<i64>) -> Result<Response, Error> {
-    Ok(match state.pronunciations.audio(id).await? {
+#[derive(Deserialize)]
+pub struct AudioQuery {
+    #[serde(default = "first_level")]
+    level: i16,
+}
+
+fn first_level() -> i16 {
+    1
+}
+
+/// `GET /cards/{id}/audio?level=1`: the MP3 of the card's dictionary form,
+/// or of its form of a level above 1; 404 while it is not made.
+pub async fn audio(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Query(q): Query<AudioQuery>,
+) -> Result<Response, Error> {
+    Ok(match state.pronunciations.audio(id, q.level).await? {
         Some(mp3) => ([(header::CONTENT_TYPE, "audio/mpeg")], mp3).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     })

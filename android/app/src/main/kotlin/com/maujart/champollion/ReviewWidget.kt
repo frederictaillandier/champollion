@@ -66,7 +66,8 @@ object SessionStateDefinition : GlanceStateDefinition<Session> {
 
 /**
  * A flashcard: the word and the sentence it was read in; tapped, its
- * translation and meaning there, with buttons to rate it.
+ * translation and meaning there, with buttons to rate it. Above level 1, the
+ * word alone; tapped, its translation and the form of its level, spoken.
  */
 class ReviewWidget : GlanceAppWidget() {
     override val stateDefinition = SessionStateDefinition
@@ -137,40 +138,41 @@ suspend fun updateWidgets(context: Context) {
 @Composable
 private fun Content(session: Session) {
     val card = session.current()
+    val colors = card?.let { CardColors.of(it) }
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
             .appWidgetBackground()
-            .background(GlanceTheme.colors.widgetBackground)
+            .background(colors?.background ?: GlanceTheme.colors.widgetBackground)
             .cornerRadius(16.dp)
             .padding(12.dp),
     ) {
-        Status(session)
+        Status(session, colors?.muted ?: GlanceTheme.colors.onSurfaceVariant)
         when {
-            card == null -> Empty(session)
-            session.flipped -> Back(card, session.muted)
-            else -> Front(card)
+            card == null || colors == null -> Empty(session)
+            session.flipped -> Back(card, colors, session.muted)
+            else -> Front(card, colors)
         }
     }
 }
 
 @Composable
-private fun Status(session: Session) {
+private fun Status(session: Session, color: ColorProvider) {
     val parts = buildList {
         add("${session.queue.size} left")
-        val unsent = session.pending.size + session.flags.size
-        if (unsent > 0) add("$unsent to send")
+        session.due()?.let { add("$it due") }
         if (session.syncError != null) add("offline")
     }
     Text(
         text = parts.joinToString(" · "),
-        style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 11.sp),
+        style = TextStyle(color = color, fontSize = 11.sp),
     )
 }
 
 @Composable
-private fun ColumnScope.Front(card: Card) {
-    val sighting = card.sightings.firstOrNull()
+private fun ColumnScope.Front(card: Card, colors: CardColors) {
+    // Above level 1, the word alone: it is known without its context.
+    val sighting = card.sightings.firstOrNull()?.takeIf { card.level == 1 }
     Column(
         modifier = GlanceModifier
             .defaultWeight()
@@ -182,7 +184,7 @@ private fun ColumnScope.Front(card: Card) {
         Text(
             text = card.lemma,
             style = TextStyle(
-                color = GlanceTheme.colors.onSurface,
+                color = colors.text,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
@@ -194,7 +196,7 @@ private fun ColumnScope.Front(card: Card) {
                 text = sighting.sentence,
                 maxLines = 4,
                 style = TextStyle(
-                    color = GlanceTheme.colors.onSurface,
+                    color = colors.text,
                     fontSize = 14.sp,
                     textAlign = TextAlign.Center,
                 ),
@@ -203,7 +205,7 @@ private fun ColumnScope.Front(card: Card) {
         Spacer(GlanceModifier.height(8.dp))
         Text(
             text = "Tap to see the answer",
-            style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 11.sp),
+            style = TextStyle(color = colors.muted, fontSize = 11.sp),
         )
     }
     // Outside the card's tap area, so listening does not flip it.
@@ -223,7 +225,7 @@ private fun ColumnScope.Front(card: Card) {
 }
 
 @Composable
-private fun ColumnScope.Back(card: Card, muted: Boolean) {
+private fun ColumnScope.Back(card: Card, colors: CardColors, muted: Boolean) {
     val sighting = card.sightings.firstOrNull()
     Column(
         modifier = GlanceModifier
@@ -235,7 +237,7 @@ private fun ColumnScope.Back(card: Card, muted: Boolean) {
         Text(
             text = listOf(card.lemma, grammar(card)).filter { it.isNotEmpty() }.joinToString(" · "),
             style = TextStyle(
-                color = GlanceTheme.colors.onSurface,
+                color = colors.text,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
             ),
@@ -244,24 +246,40 @@ private fun ColumnScope.Back(card: Card, muted: Boolean) {
             text = card.translation,
             maxLines = 2,
             style = TextStyle(
-                color = GlanceTheme.colors.primary,
+                color = colors.text,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Medium,
             ),
         )
-        if (sighting != null) {
+        val form = card.form
+        if (form != null) {
+            Spacer(GlanceModifier.height(6.dp))
+            Text(
+                text = form.form,
+                style = TextStyle(
+                    color = colors.text,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+            )
+            Text(
+                text = form.translation,
+                maxLines = 2,
+                style = TextStyle(color = colors.muted, fontSize = 14.sp),
+            )
+        } else if (sighting != null) {
             Spacer(GlanceModifier.height(4.dp))
             Text(
                 text = sighting.definition,
                 maxLines = 3,
-                style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 13.sp),
+                style = TextStyle(color = colors.text, fontSize = 13.sp),
             )
             Spacer(GlanceModifier.height(4.dp))
             Text(
                 text = sighting.sentenceTranslation,
                 maxLines = 3,
                 style = TextStyle(
-                    color = GlanceTheme.colors.onSurfaceVariant,
+                    color = colors.muted,
                     fontSize = 12.sp,
                     fontStyle = FontStyle.Italic,
                 ),
@@ -271,6 +289,15 @@ private fun ColumnScope.Back(card: Card, muted: Boolean) {
     Row(modifier = GlanceModifier.fillMaxWidth()) {
         Rating.entries.forEach { RateButton(it) }
         FlagButton()
+        val form = card.form
+        if (form != null && Pronunciations.has(LocalContext.current, card.id, form.level)) {
+            Button(
+                label = "🗣",
+                color = Color(0xFF616161),
+                action = actionRunCallback<SpeakFormAction>(),
+                modifier = GlanceModifier.width(48.dp),
+            )
+        }
         MuteButton(muted)
     }
 }
@@ -382,8 +409,12 @@ private val RatingKey = ActionParameters.Key<String>("rating")
 
 class FlipAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        context.session.updateData { it.flip() }
+        val session = context.session.updateData { it.flip() }
         updateWidgets(context)
+        // The back of a card above level 1 says its form, unless muted.
+        val card = session.current() ?: return
+        val form = card.form ?: return
+        if (session.flipped && !session.muted) Pronunciations.play(context, card, form.level)
     }
 }
 
@@ -410,6 +441,14 @@ class FlagAction : ActionCallback {
 class SpeakAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         context.session.data.first().current()?.let { Pronunciations.play(context, it) }
+    }
+}
+
+/** Says the form of the current card's level again, muted or not. */
+class SpeakFormAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val card = context.session.data.first().current() ?: return
+        card.form?.let { Pronunciations.play(context, card, it.level) }
     }
 }
 

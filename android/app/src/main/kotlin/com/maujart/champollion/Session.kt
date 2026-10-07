@@ -32,6 +32,8 @@ data class Session(
     val muted: Boolean = false,
     /** Whether the next sync replaces the cards with a new session. */
     val reload: Boolean = false,
+    /** Cards due on the backend at the last sync, null if never known. */
+    val dueAtSync: Int? = null,
     /** Epoch millis of the last successful sync, 0 if never. */
     val lastSync: Long = 0,
     /** Why the last sync failed, null if it worked. */
@@ -40,6 +42,16 @@ data class Session(
     /** The card shown: the first in the queue, which is in random order. */
     fun current(): Card? =
         queue.firstOrNull()?.let { q -> cards.find { it.id == q.cardId } }
+
+    /**
+     * Cards due now, as far as the phone knows: those due on the backend at
+     * the last sync, but those succeeded or flagged here since. A failed card
+     * is still due.
+     */
+    fun due(): Int? = dueAtSync?.let { due ->
+        val done = pending.count { it.rating == Rating.Succeeded.wire } + flags.size
+        maxOf(0, due - done)
+    }
 
     fun flip(): Session = copy(flipped = !flipped)
 
