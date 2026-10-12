@@ -27,6 +27,8 @@ data class Card(
     /** The form learnt at the card's level, none at level 1. */
     val form: CardForm? = null,
     val sightings: List<CardSighting>,
+    /** Never reviewed: to learn, not due. */
+    @SerialName("new") val isNew: Boolean = false,
 )
 
 /** A form of the card's word, e.g. `schovám se` ("I'll hide"). */
@@ -63,8 +65,9 @@ data class Review(
     @SerialName("reviewed_at") val reviewedAt: String,
 )
 
+/** Cards due for review on the backend, and new cards to learn. */
 @Serializable
-private data class DueCount(val due: Int)
+data class DueCount(val due: Int, val new: Int = 0)
 
 @Serializable
 private data class ReviewBatch(val reviews: List<Review>)
@@ -88,9 +91,9 @@ object Backend {
     suspend fun dueCards(limit: Int): List<Card> =
         json.decodeFromString(request("GET", "/cards/due?limit=$limit", null).decodeToString())
 
-    /** How many cards are due now on the backend, new ones included. */
-    suspend fun dueCount(): Int =
-        json.decodeFromString<DueCount>(request("GET", "/cards/due/count", null).decodeToString()).due
+    /** How many cards are due for review now on the backend, and how many are new. */
+    suspend fun dueCount(): DueCount =
+        json.decodeFromString(request("GET", "/cards/due/count", null).decodeToString())
 
     /**
      * The MP3 of the card's word (level 1) or of its form of a level above,

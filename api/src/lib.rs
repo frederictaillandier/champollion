@@ -97,6 +97,9 @@ pub struct Card {
     pub form: Option<CardForm>,
     /// Oldest first.
     pub sightings: Vec<CardSighting>,
+    /// Whether the card was never reviewed: it is to learn, not due.
+    #[serde(default)]
+    pub new: bool,
 }
 
 fn first_level() -> i16 {
@@ -106,8 +109,11 @@ fn first_level() -> i16 {
 /// `GET /cards/due/count`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DueCount {
-    /// Cards due now and not flagged, new ones included.
+    /// Cards reviewed before, due now and not flagged.
     pub due: u64,
+    /// Cards never reviewed and not flagged: to learn, not due.
+    #[serde(default)]
+    pub new: u64,
 }
 
 /// A sighting as shown on a card.

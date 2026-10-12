@@ -36,8 +36,16 @@ data class Session(
     val muted: Boolean = false,
     /** Whether the next sync replaces the cards with a new session. */
     val reload: Boolean = false,
-    /** Cards due on the backend at the last sync, null if never known. */
+    /** Cards due for review on the backend at the last sync, null if never known. */
     val dueAtSync: Int? = null,
+    /** New cards on the backend at the last sync, null if never known. */
+    val newAtSync: Int? = null,
+    /**
+     * The cards that were new when downloaded, while they are in the session
+     * or their ratings and flags are not sent: they count off the new cards,
+     * not the due ones.
+     */
+    val newCards: Set<Long> = emptySet(),
     /** Epoch millis of the last successful sync, 0 if never. */
     val lastSync: Long = 0,
     /** Why the last sync failed, null if it worked. */
@@ -50,13 +58,23 @@ data class Session(
         queue.firstOrNull()?.let { q -> cards.find { it.id == q.cardId } }
 
     /**
-     * Cards due now, as far as the phone knows: those due on the backend at
-     * the last sync, but those succeeded or flagged here since. A failed card
-     * is still due.
+     * Cards due for review now, as far as the phone knows: those due on the
+     * backend at the last sync, but those succeeded or flagged here since. A
+     * failed card is still due.
      */
     fun due(): Int? = dueAtSync?.let { due ->
-        val done = pending.count { it.rating == Rating.Succeeded.wire } + flags.size
+        val done = pending.count { it.rating == Rating.Succeeded.wire && it.cardId !in newCards } +
+            flags.count { it.cardId !in newCards }
         maxOf(0, due - done)
+    }
+
+    /**
+     * New cards, as far as the phone knows: those new on the backend at the
+     * last sync, but those rated or flagged here since.
+     */
+    fun new(): Int? = newAtSync?.let { new ->
+        val seen = (pending.map { it.cardId } + flags.map { it.cardId }).toSet() intersect newCards
+        maxOf(0, new - seen.size)
     }
 
     fun flip(): Session = copy(flipped = !flipped)
@@ -133,6 +151,7 @@ data class Session(
      */
     fun restart(): Session =
         copy(cards = emptyList(), queue = emptyList(), flipped = false, reload = false)
+            .withoutGoneNewCards()
 
     /** Forgets reviews the backend has received. */
     fun sent(reviews: List<Review>): Session {
@@ -140,14 +159,20 @@ data class Session(
         return copy(
             pending = pending.filterNot { it.id in ids },
             last = last?.takeUnless { it.review in ids },
-        )
+        ).withoutGoneNewCards()
     }
 
     /** Forgets flags the backend has received. */
     fun flagsSent(sent: List<Flag>): Session = copy(
         flags = flags - sent.toSet(),
         last = last?.takeUnless { it.flag in sent },
-    )
+    ).withoutGoneNewCards()
+
+    /** Forgets the new cards no longer in the session nor waiting to be sent. */
+    private fun withoutGoneNewCards(): Session {
+        val kept = cards.map { it.id } + pending.map { it.cardId } + flags.map { it.cardId }
+        return copy(newCards = newCards intersect kept.toSet())
+    }
 
     /**
      * Adds cards downloaded from the backend, except those already in the
@@ -158,7 +183,11 @@ data class Session(
             flags.map { it.cardId }
         val added = downloaded.filter { it.id !in known }
         val updated = cards.map { c -> downloaded.find { it.id == c.id } ?: c }
-        return copy(cards = updated + added, queue = queue + added.map { Queued(it.id) })
+        return copy(
+            cards = updated + added,
+            queue = queue + added.map { Queued(it.id) },
+            newCards = newCards + added.filter { it.isNew }.map { it.id },
+        )
     }
 }
 

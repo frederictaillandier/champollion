@@ -161,6 +161,7 @@ private fun Status(session: Session, color: ColorProvider) {
     val parts = buildList {
         add("${session.queue.size} left")
         session.due()?.let { add("$it due") }
+        session.new()?.takeIf { it > 0 }?.let { add("$it new") }
         if (session.syncError != null) add("offline")
     }
     Text(

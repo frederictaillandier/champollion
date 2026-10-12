@@ -30,12 +30,14 @@ and one for the Galaxy Z Flip's cover screen (Flex Window), which Samsung
 requires to be a keyguard widget of at least 352×339 dp with a
 `com.samsung.android.appwidget.provider` declaring `display="sub_screen"`.
 
-Reviewing works offline. The phone downloads a session of cards due (up to
-50: those already reviewed first, then new ones, each in random order) and
-keeps them with the ratings and flags not sent yet (`Session`, in a
-DataStore); "N left" counts the session's cards, those failed included, and "N due"
-the cards due on the backend at the last sync, but those succeeded or
-flagged since.
+Reviewing works offline. The phone downloads a session of 50 cards: 45
+cards due for review, then 5 new ones (never reviewed), each in random
+order; when one kind runs short, the other fills the session. It keeps them
+with the ratings and flags not sent yet (`Session`, in a DataStore). "N
+left" counts the session's cards, those failed included; "N due" the cards
+due for review on the backend at the last sync, but those succeeded or
+flagged since; "N new" the new cards, to learn rather than due, but those
+rated or flagged since.
 Once the session is done, WorkManager sends its ratings and flags and
 downloads the next one, as soon as the backend is reachable; it also syncs
 every 30 minutes. A failed card goes back in the session at a random place
@@ -161,7 +163,7 @@ Files next to `vocabulary.tsv`:
 ### Time to study
 
 With `--backend-url`, the daemon asks the backend every 30 seconds how many
-cards are due (new ones included). Once 50 are (`--lock-at`,
+cards are due for review (new ones are not due). Once 50 are (`--lock-at`,
 `CHAMPOLLION_LOCK_AT`; 0 turns this off), it closes the game: a "Time to
 study" notification shows, the game and everything Steam's `reaper`
 started for it get SIGTERM, then SIGKILL 10 seconds later, without saving.
@@ -207,8 +209,8 @@ reach it are WireGuard peers (this PC at `10.0.0.50`, the phone at
 |---|---|
 | `GET /health` | `ok` |
 | `POST /cards` | `{"cards": [NewCard]}` → `{"added_cards": n, "added_sightings": n, "updated_sightings": n, "changed_forms": n}`; known cards are kept but take the forms sent, known sightings (same card, form and frame) take the sentence, its translation and the definition sent |
-| `GET /cards/due?limit=100` | cards due now with their sightings, those already reviewed first, then new ones, each in random order |
-| `GET /cards/due/count` | `{"due": n}`: how many cards are due now, new ones included |
+| `GET /cards/due?limit=50` | a session: cards due for review with their sightings, then one new card (`"new": true`) in ten, each in random order; either kind fills what the other lacks |
+| `GET /cards/due/count` | `{"due": n, "new": n}`: how many cards reviewed before are due now, and how many are new (never reviewed, so not due) |
 | `GET /cards/{id}/audio?level=1` | the MP3 of the card's dictionary form, or of its form of a level above 1; 404 while it is not made |
 | `POST /reviews` | `{"reviews": [Review]}` → `{"applied": n}`; a review id sent twice counts once |
 | `POST /flags` | `{"flags": [Flag]}` → `{"applied": n}`; flagged cards are no longer due |

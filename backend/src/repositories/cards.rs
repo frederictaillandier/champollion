@@ -6,7 +6,7 @@ use sqlx::PgConnection;
 
 use crate::schedule::CardState;
 
-/// A card due for review, without its sightings.
+/// A card of a session, without its sightings.
 #[derive(sqlx::FromRow)]
 pub struct DueCard {
     pub id: i64,
@@ -61,16 +61,19 @@ pub async fn id_of(conn: &mut PgConnection, card: &NewCard) -> Result<i64, sqlx:
         .await
 }
 
-/// Up to `limit` cards due now and not flagged: those already reviewed
-/// first, then new ones, each in random order.
-pub async fn due(conn: &mut PgConnection, limit: i64) -> Result<Vec<DueCard>, sqlx::Error> {
+// A new card was never reviewed (`reps = 0 AND lapses = 0`): it is to learn,
+// so not counted due, though its `due` is when it was added.
+
+/// Up to `limit` cards reviewed before, due now and not flagged, in random
+/// order.
+pub async fn due_reviews(conn: &mut PgConnection, limit: i64) -> Result<Vec<DueCard>, sqlx::Error> {
     sqlx::query_as(
         "SELECT c.id, c.lang, c.lemma, c.pos, c.gender, c.translation, c.due, c.reps, c.level,
             f.form, f.translation AS form_translation
         FROM cards c
         LEFT JOIN card_forms f ON f.card_id = c.id AND f.level = c.level
-        WHERE c.due <= now() AND c.flagged_at IS NULL
-        ORDER BY (c.reps > 0 OR c.lapses > 0) DESC, random()
+        WHERE c.due <= now() AND (c.reps > 0 OR c.lapses > 0) AND c.flagged_at IS NULL
+        ORDER BY random()
         LIMIT $1",
     )
     .bind(limit)
@@ -78,11 +81,39 @@ pub async fn due(conn: &mut PgConnection, limit: i64) -> Result<Vec<DueCard>, sq
     .await
 }
 
-/// How many cards are due now and not flagged.
+/// Up to `limit` new cards not flagged, in random order.
+pub async fn new_cards(conn: &mut PgConnection, limit: i64) -> Result<Vec<DueCard>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT c.id, c.lang, c.lemma, c.pos, c.gender, c.translation, c.due, c.reps, c.level,
+            f.form, f.translation AS form_translation
+        FROM cards c
+        LEFT JOIN card_forms f ON f.card_id = c.id AND f.level = c.level
+        WHERE c.reps = 0 AND c.lapses = 0 AND c.flagged_at IS NULL
+        ORDER BY random()
+        LIMIT $1",
+    )
+    .bind(limit)
+    .fetch_all(conn)
+    .await
+}
+
+/// How many cards reviewed before are due now and not flagged.
 pub async fn due_count(conn: &mut PgConnection) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar("SELECT count(*) FROM cards WHERE due <= now() AND flagged_at IS NULL")
-        .fetch_one(conn)
-        .await
+    sqlx::query_scalar(
+        "SELECT count(*) FROM cards
+        WHERE due <= now() AND (reps > 0 OR lapses > 0) AND flagged_at IS NULL",
+    )
+    .fetch_one(conn)
+    .await
+}
+
+/// How many new cards are not flagged.
+pub async fn new_count(conn: &mut PgConnection) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM cards WHERE reps = 0 AND lapses = 0 AND flagged_at IS NULL",
+    )
+    .fetch_one(conn)
+    .await
 }
 
 /// The card's review state, locked until the end of the transaction, and

@@ -5,7 +5,7 @@ import kotlin.random.Random
 import org.junit.Test
 
 class SessionTest {
-    private fun card(id: Long) = Card(
+    private fun card(id: Long, isNew: Boolean = false) = Card(
         id = id,
         lang = "ces",
         lemma = "slovo$id",
@@ -15,6 +15,7 @@ class SessionTest {
         due = "2026-10-04T12:00:00Z",
         reps = 0,
         sightings = emptyList(),
+        isNew = isNew,
     )
 
     private val now = 1_000_000L
@@ -79,6 +80,24 @@ class SessionTest {
             .rate(Rating.Succeeded, now).rate(Rating.Failed, now).flag(now)
         assertEquals(8, session.due())
         assertEquals(null, Session().due())
+    }
+
+    @Test
+    fun newCardsCountOffTheNewOnesNotTheDueOnes() {
+        val session = Session(dueAtSync = 10, newAtSync = 5)
+            .merge(listOf(card(1), card(2, isNew = true), card(3, isNew = true), card(4, isNew = true)))
+            .rate(Rating.Succeeded, now).rate(Rating.Failed, now).flag(now)
+        assertEquals(9, session.due())
+        assertEquals(3, session.new())
+        assertEquals(null, Session().new())
+    }
+
+    @Test
+    fun sentNewCardsAreForgotten() {
+        val rated = Session(newAtSync = 5).merge(listOf(card(1, isNew = true), card(2, isNew = true)))
+            .rate(Rating.Succeeded, now)
+        val session = rated.sent(rated.pending)
+        assertEquals(setOf(2L), session.newCards)
     }
 
     @Test
