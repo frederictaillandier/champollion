@@ -15,6 +15,10 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class Queued(val cardId: Long)
 
+/** The card last rated or flagged, with that rating or flag, to take it back. */
+@Serializable
+data class Last(val card: Card, val review: String? = null, val flag: Flag? = null)
+
 /**
  * The cards downloaded for review, kept on the phone so reviewing works
  * offline, and the reviews not sent to the backend yet. Shared by all widgets.
@@ -38,6 +42,8 @@ data class Session(
     val lastSync: Long = 0,
     /** Why the last sync failed, null if it worked. */
     val syncError: String? = null,
+    /** The last rating or flag, while it can be taken back. */
+    val last: Last? = null,
 ) {
     /** The card shown: the first in the queue, which is in random order. */
     fun current(): Card? =
@@ -80,17 +86,44 @@ data class Session(
             queue = queue,
             flipped = false,
             pending = pending + review,
+            last = Last(card, review = review.id),
         )
     }
 
     /** Takes the current card out of the session, to be flagged. */
     fun flag(now: Long): Session {
         val card = current() ?: return this
+        val flag = Flag(card.id, Instant.ofEpochMilli(now).toString())
         return copy(
             cards = cards.filterNot { it.id == card.id },
             queue = queue.filterNot { it.cardId == card.id },
             flipped = false,
-            flags = flags + Flag(card.id, Instant.ofEpochMilli(now).toString()),
+            flags = flags + flag,
+            last = Last(card, flag = flag),
+        )
+    }
+
+    /** Whether the last rating or flag is not sent yet, so can be taken back. */
+    fun canUndo(): Boolean {
+        val last = last ?: return false
+        return pending.any { it.id == last.review } || last.flag in flags
+    }
+
+    /**
+     * Takes back the last rating or flag (a misclick): its card shows again
+     * first, on its back, to be rated again.
+     */
+    fun undo(): Session {
+        if (!canUndo()) return this
+        val last = last ?: return this
+        val card = last.card
+        return copy(
+            cards = cards.filterNot { it.id == card.id } + card,
+            queue = listOf(Queued(card.id)) + queue.filterNot { it.cardId == card.id },
+            flipped = true,
+            pending = pending.filterNot { it.id == last.review },
+            flags = flags.filterNot { it == last.flag },
+            last = null,
         )
     }
 
@@ -104,11 +137,17 @@ data class Session(
     /** Forgets reviews the backend has received. */
     fun sent(reviews: List<Review>): Session {
         val ids = reviews.map { it.id }.toSet()
-        return copy(pending = pending.filterNot { it.id in ids })
+        return copy(
+            pending = pending.filterNot { it.id in ids },
+            last = last?.takeUnless { it.review in ids },
+        )
     }
 
     /** Forgets flags the backend has received. */
-    fun flagsSent(sent: List<Flag>): Session = copy(flags = flags - sent.toSet())
+    fun flagsSent(sent: List<Flag>): Session = copy(
+        flags = flags - sent.toSet(),
+        last = last?.takeUnless { it.flag in sent },
+    )
 
     /**
      * Adds cards downloaded from the backend, except those already in the

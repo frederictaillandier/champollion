@@ -151,7 +151,7 @@ private fun Content(session: Session) {
         when {
             card == null || colors == null -> Empty(session)
             session.flipped -> Back(card, colors, session.muted)
-            else -> Front(card, colors)
+            else -> Front(card, colors, session.canUndo())
         }
     }
 }
@@ -170,7 +170,7 @@ private fun Status(session: Session, color: ColorProvider) {
 }
 
 @Composable
-private fun ColumnScope.Front(card: Card, colors: CardColors) {
+private fun ColumnScope.Front(card: Card, colors: CardColors, canUndo: Boolean) {
     // Above level 1, the word alone: it is known without its context.
     val sighting = card.sightings.firstOrNull()?.takeIf { card.level == 1 }
     Column(
@@ -209,17 +209,21 @@ private fun ColumnScope.Front(card: Card, colors: CardColors) {
         )
     }
     // Outside the card's tap area, so listening does not flip it.
-    if (Pronunciations.has(LocalContext.current, card.id)) {
+    val speakable = Pronunciations.has(LocalContext.current, card.id)
+    if (speakable || canUndo) {
         Row(
             modifier = GlanceModifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Button(
-                label = "🔊",
-                color = Color(0xFF616161),
-                action = actionRunCallback<SpeakAction>(),
-                modifier = GlanceModifier.width(64.dp),
-            )
+            if (canUndo) UndoButton()
+            if (speakable) {
+                Button(
+                    label = "🔊",
+                    color = Color(0xFF616161),
+                    action = actionRunCallback<SpeakAction>(),
+                    modifier = GlanceModifier.width(64.dp),
+                )
+            }
         }
     }
 }
@@ -332,6 +336,17 @@ private fun FlagButton() {
     )
 }
 
+/** Takes back the last rating or flag, e.g. a misclick. */
+@Composable
+private fun UndoButton() {
+    Button(
+        label = "↩",
+        color = Color(0xFF616161),
+        action = actionRunCallback<UndoAction>(),
+        modifier = GlanceModifier.width(64.dp),
+    )
+}
+
 /** Stops speaking the words when their card shows, or starts again. */
 @Composable
 private fun MuteButton(muted: Boolean) {
@@ -403,6 +418,15 @@ private fun ColumnScope.Empty(session: Session) {
             ),
         )
     }
+    // The last card of a session, rated by mistake, while not sent yet.
+    if (session.canUndo()) {
+        Row(
+            modifier = GlanceModifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            UndoButton()
+        }
+    }
 }
 
 private val RatingKey = ActionParameters.Key<String>("rating")
@@ -434,6 +458,14 @@ class FlagAction : ActionCallback {
         updateWidgets(context)
         Sync.whenDone(context, session)
         speak(context, session)
+    }
+}
+
+/** Shows the card last rated or flagged again, on its back, to rate it again. */
+class UndoAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        context.session.updateData { it.undo() }
+        updateWidgets(context)
     }
 }
 

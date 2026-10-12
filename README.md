@@ -9,7 +9,8 @@ review the cards of the backend like in Anki: the word and the game sentence
 it was read in; tapped, its translation, its meaning in that sentence and the
 sentence's translation, with the Failed / Succeed buttons and ⚑ to flag a
 wrong card: it leaves the reviews, and is kept in the backend (`flagged_at`)
-to be fixed.
+to be fixed. ↩ under the next card takes back the last rating or flag (a
+misclick) while it is not sent yet: that card shows again, on its back.
 
 Each time a rating or a flag shows the next card, its word is spoken (the
 backend's ElevenLabs recording, downloaded with the session, so it plays
