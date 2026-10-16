@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Game's Own Text · Champollion</title>
+<meta name="description" content="Matching what OCR reads against the 204,083 lines of Kingdom Come: Deliverance II's Czech text.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/charts.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="index.html"><span class="brand-mark">Ch</span>Champollion</a>
+    <nav class="nav" aria-label="Pages">
+      <a href="index.html">Overview</a>
+      <a href="recording.html">Recording</a>
+      <a href="reading.html">Reading the screen</a>
+      <a href="game-text.html" aria-current="page">The game's text</a>
+      <a href="cards.html">Cards and reviews</a>
+      <a href="phone.html">Phone widget</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="page-head">
+    <div class="eyebrow">03 · <span class="chip jetson"><span>Jetson</span></span></div>
+    <h1>The game's own text</h1>
+    <p class="lede">Kingdom Come: Deliverance II ships every line it can show, in Czech and English. OCR still decides what you saw and when; each line it reads is then replaced by the game's exact text. Misread accents come back, and you still only learn what was on your screen.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">The files</div>
+      <h2>204,083 lines, each with an ID</h2>
+      <p><code>Localization/Czech_xml.pak</code> is a zip archive of eleven XML tables, one row per line of text: an ID, then two Czech versions. <code>English_xml.pak</code> has the same IDs, so every line comes with the game's official English. Texts carry a little markup (<code>&lt;br/&gt;</code>, <code>&lt;paragraph&gt;</code>, <code>&lt;accent&gt;</code>), removed on import.</p>
+    </div>
+    <figure class="figure">
+      <div class="figure-title">Lines per file in the Czech archive</div>
+      <div class="figure-sub">Dialogue is almost nine lines in ten</div>
+      <div id="chart-files"></div>
+    </figure>
+    <div class="two">
+      <div class="lesson">
+        <h3>Two Czech versions of most dialogue</h3>
+        <p>In 71,258 dialogue rows the two Czech columns differ, the second often with spoken forms: "Pořád <strong>nevím</strong>, kde hledat Hanse" against "Pořád <strong>nevim</strong>…". Which one the subtitles show isn't known yet, so both are kept and matched.</p>
+      </div>
+      <div class="lesson">
+        <h3>The log doesn't help</h3>
+        <p>The game's <code>kcd.log</code> only records startup, DLCs and fonts: nothing about dialogue or quests. Reading the screen stays the only way to know what you saw.</p>
+      </div>
+    </div>
+    <pre><code>champollion-game-text import ~/.steam/steam/steamapps/common/KingdomComeDeliverance2/Localization \
+    ~/.local/share/champollion/game-text/1771300.sqlite
+# 204083 lines imported  (1.3 s, 57 MB)
+
+CREATE TABLE lines (file TEXT, id TEXT, czech TEXT, czech_alt TEXT, english TEXT,
+                    PRIMARY KEY (file, id))</code></pre>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Matching</div>
+      <h2>Finding a line despite OCR errors</h2>
+      <p>A screen line rarely equals a game line: OCR drops accents and confuses letters, subtitles wrap over several lines, and a save name comes with its playtime and date. Matching compares texts loosely, then hands back the exact one.</p>
+    </div>
+    <figure class="figure">
+      <div class="diagram">
+        <svg viewBox="0 0 980 300" role="img" aria-labelledby="m-t">
+          <title id="m-t">How an OCR line is matched to a game line</title>
+          <defs><marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="dg-arrowhead"/></marker></defs>
+          <rect x="10" y="10" width="960" height="280" rx="14" class="dg-jetson"/>
+          <text x="30" y="38" class="dg-head-jetson">CHAMPOLLION-GAME-TEXT MATCH</text>
+          <rect x="30" y="58" width="210" height="96" rx="8" class="dg-box"/>
+          <text x="135" y="82" class="dg-text" text-anchor="middle">1 · Fold</text>
+          <text x="135" y="104" class="dg-small" text-anchor="middle">no accents, lowercase,</text>
+          <text x="135" y="120" class="dg-small" text-anchor="middle">punctuation to spaces</text>
+          <text x="135" y="142" class="dg-mono" text-anchor="middle">dezstarostna jizdy</text>
+          <rect x="270" y="58" width="210" height="96" rx="8" class="dg-box"/>
+          <text x="375" y="82" class="dg-text" text-anchor="middle">2 · Candidates</text>
+          <text x="375" y="104" class="dg-small" text-anchor="middle">game lines sharing the most</text>
+          <text x="375" y="120" class="dg-small" text-anchor="middle">three-letter sequences</text>
+          <text x="375" y="142" class="dg-mono" text-anchor="middle">"zst" "sta" "ost" … · top 40</text>
+          <rect x="510" y="58" width="210" height="96" rx="8" class="dg-box"/>
+          <text x="615" y="82" class="dg-text" text-anchor="middle">3 · Edit distance</text>
+          <text x="615" y="104" class="dg-small" text-anchor="middle">the closest stretch, both ways:</text>
+          <text x="615" y="120" class="dg-small" text-anchor="middle">line in game text, game text in line</text>
+          <text x="615" y="142" class="dg-mono" text-anchor="middle">2 edits in 18 → 0.89</text>
+          <rect x="750" y="58" width="200" height="96" rx="8" class="dg-box"/>
+          <text x="850" y="82" class="dg-text" text-anchor="middle">4 · Exact text</text>
+          <text x="850" y="104" class="dg-small" text-anchor="middle">widened to whole words,</text>
+          <text x="850" y="120" class="dg-small" text-anchor="middle">with its ID and English</text>
+          <text x="850" y="142" class="dg-mono" text-anchor="middle">Bezstarostná jízda</text>
+          <path d="M240,106 H266" class="dg-arrow" marker-end="url(#ah4)"/>
+          <path d="M480,106 H506" class="dg-arrow" marker-end="url(#ah4)"/>
+          <path d="M720,106 H746" class="dg-arrow" marker-end="url(#ah4)"/>
+          <text x="30" y="192" class="dg-title">Rules</text>
+          <text x="30" y="216" class="dg-small">· A match needs 80% of its characters right (--min-similarity 0.8).</text>
+          <text x="30" y="238" class="dg-small">· Lines under 8 letters only match a whole, equal game text: "hra" alone would match thousands of lines.</text>
+          <text x="30" y="260" class="dg-small">· Sentence punctuation is kept when the screen showed it or the game line ends there; brackets and quotes stay out.</text>
+          <text x="30" y="282" class="dg-small">· Loading the index takes 1 s; matching a 2-minute recording's 273 different lines another second.</text>
+        </svg>
+      </div>
+      <figcaption>The edit distance is Sellers' algorithm: the cheapest way to turn one text into some stretch of the other, wherever that stretch starts.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Results</div>
+      <h2>What it fixes</h2>
+      <p>On the 2-minute recording of 14 October, read by the GPU reader:</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>OCR read</th><th>Game text</th><th>Where</th></tr></thead>
+        <tbody>
+          <tr><td>Král Václav IV. byl <span class="err">uvézněn</span> odbojnou šlechtou</td><td>Král Václav IV. byl <span class="fix">uvězněn</span> odbojnou šlechtou</td><td class="mono">text_ui_dialog</td></tr>
+          <tr><td>a <span class="err">svym</span> bratrem Zikmundem, králem <span class="err">uherskym</span>.</td><td>a <span class="fix">svým</span> bratrem Zikmundem, králem <span class="fix">Uherským</span>.</td><td class="mono">text_ui_dialog</td></tr>
+          <tr><td>je <span class="err">české</span> království <span class="err">zmitáno</span> válkou.</td><td>je <span class="fix">České</span> království <span class="fix">zmítáno</span> válkou.</td><td class="mono">text_ui_dialog</td></tr>
+          <tr><td>Pouze hrstka věrných <span class="err">stoji</span> při právoplatném králi.</td><td>Pouze hrstka věrných <span class="fix">stojí</span> při právoplatném králi...</td><td class="mono">text_ui_dialog</td></tr>
+          <tr><td>Bezstarostná jízda, 0h, 06/10/2026 12:22</td><td>Bezstarostná jízda <span class="muted">(quest, "Easy Riders")</span></td><td class="mono">text_ui_quest</td></tr>
+          <tr><td>Pokračovat</td><td>Pokračovat <span class="muted">(from "(Pokračovat)")</span></td><td class="mono">text_ui_dialog</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="label">Different screen lines</span><span class="value">273</span><span class="note">2-minute recording, detection at 1280</span></div>
+      <div class="stat"><span class="label">Matched to a game line</span><span class="value">73</span><span class="note">the rest isn't in the game's files</span></div>
+      <div class="stat"><span class="label">Czech game lines found</span><span class="value">31</span><span class="note">the same at 960 and 1280 detection</span></div>
+    </div>
+    <p class="prose">The lines that don't match are text the game files don't hold: the main menu's news panel, the Deep Silver account promotion, and Steam's overlay. Dropping them loses nothing worth learning. Matching also made the cheaper settings safe: detecting at 960 wide, or reading 1080p recordings, found exactly the same Czech lines.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">In use</div>
+      <h2>Inside the reader, on the Jetson</h2>
+      <p>Since 16 October the matching runs on the Jetson, inside the GPU reader, before any text is sent back: the desktop only ever sees corrected lines. A copy of the database sits in <code>~/ocr/game-text.sqlite</code>, loaded in about a second for each recording, and a cache per line makes the dozens of frames of one subtitle free.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>The same 70 seconds of play, 16 October</th><th class="num">Misspelled new words</th><th class="num">Wrong sightings sent</th></tr></thead>
+        <tbody>
+          <tr><td>Read on the GPU, not corrected</td><td class="num">12</td><td class="num">10</td></tr>
+          <tr><td>Read on the GPU, corrected with the game's text</td><td class="num">0</td><td class="num">0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose">The 10 wrong sightings (<em>ceské</em>, <em>svym</em>, <em>uveznen</em>…) were fixed by hand on the backend: 7 duplicated a correct sighting and were deleted, 3 had their form corrected. Claude had already found the right dictionary forms, so no duplicate card was made.</p>
+    <div class="lessons">
+      <div class="lesson"><h3>133 MB, not 360</h3><p>The index first kept every line twice, with tables of character positions: 360 MB. It now keeps each line's text and its three-letter index only, and rebuilds the rest for the 40 candidates it compares. Same results, same speed.</p></div>
+      <div class="lesson"><h3>Why not let SQLite search?</h3><p>SQLite reads the file as needed, but its full-text search wants every three-letter sequence present, and one misread letter breaks it. Counting shared sequences in memory tolerates errors.</p></div>
+      <div class="lesson"><h3>After a game update</h3><p>Import the text again on the desktop, where the game is, and copy the file to the Jetson: <code>champollion-game-text import …</code>, then <code>scp … 192.168.0.43:ocr/game-text.sqlite</code>.</p></div>
+    </div>
+    <div class="callout">
+      <strong>Known limits</strong>
+      <p>Some game lines are the same in both languages (<em>Home</em>, <em>Activity</em>) and could be skipped. A short wrapped line can match a shorter game line with the same words instead of its real source: "nepřátele…" matched the dog command <em>Útočí na nepřátele</em>. The other lines of the same frame could settle it.</p>
+    </div>
+  </section>
+
+  <nav class="next" aria-label="Next page">
+    <a href="reading.html"><span>Previous</span><strong>Reading the screen</strong></a>
+    <a href="cards.html" style="text-align:right"><span>Next</span><strong>Cards and reviews</strong></a>
+  </nav>
+</main>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const files = [
+    ["Dialogue (text_ui_dialog)", 177930],
+    ["Quests (text_ui_quest)", 8892],
+    ["Menus (text_ui_menus)", 6383],
+    ["Items (text_ui_items)", 5277],
+    ["Skills and character (text_ui_soul)", 3468],
+    ["Miscellaneous (text_ui_misc)", 1734],
+    ["Five smaller files", 399],
+  ];
+  Charts.bars(document.getElementById("chart-files"), {
+    title: "Lines per file in the Czech localization archive",
+    data: files.map(([label, value]) => ({ label, value, color: "series-3",
+      note: label === "Five smaller files" ? "tutorials 244, minigames 131, rich presence 12, menu 9, in-game 3" : "" })),
+    format: (v) => v.toLocaleString("en"),
+    table: { head: ["File", "Lines"], rows: files.map(([l, v]) => [l, v.toLocaleString("en")]) },
+  });
+});
+</script>
+</body>
+</html>

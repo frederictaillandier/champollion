@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Recording and the Study Lock · Champollion</title>
+<meta name="description" content="How the Champollion daemon records the game and closes it when cards pile up.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/charts.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="index.html"><span class="brand-mark">Ch</span>Champollion</a>
+    <nav class="nav" aria-label="Pages">
+      <a href="index.html">Overview</a>
+      <a href="recording.html" aria-current="page">Recording</a>
+      <a href="reading.html">Reading the screen</a>
+      <a href="game-text.html">The game's text</a>
+      <a href="cards.html">Cards and reviews</a>
+      <a href="phone.html">Phone widget</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="page-head">
+    <div class="eyebrow">01 · <span class="chip desktop"><span>Desktop</span></span></div>
+    <h1>Recording and the study lock</h1>
+    <p class="lede"><code>champollion-daemon</code> runs as a user service on the desktop. It waits for Kingdom Come: Deliverance II (Steam app 1771300), records the screen while it runs, and closes it when too many cards are waiting.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Capture</div>
+      <h2>From the screen to 2-minute files</h2>
+      <p>The desktop's screen-sharing portal hands the daemon a PipeWire stream. The first time, it asks which screen to share; the choice is remembered in <code>~/.local/state/champollion/</code>. Frames then stay on the graphics card all the way to the file: scaling and colour conversion run as OpenGL shaders, and encoding runs on NVENC, a chip of its own on the RTX 3070, so the game barely notices.</p>
+    </div>
+    <figure class="figure">
+      <div class="diagram">
+        <svg viewBox="0 0 980 230" role="img" aria-labelledby="cap-t">
+          <title id="cap-t">The recording pipeline</title>
+          <defs><marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="dg-arrowhead"/></marker></defs>
+          <rect x="10" y="10" width="960" height="150" rx="14" class="dg-desktop"/>
+          <text x="30" y="38" class="dg-head-desktop">ON THE RTX 3070 · FRAMES NEVER COME BACK TO THE CPU</text>
+          <g>
+            <rect x="30" y="58" width="130" height="70" rx="8" class="dg-box"/>
+            <text x="95" y="86" class="dg-text" text-anchor="middle">PipeWire</text>
+            <text x="95" y="104" class="dg-small" text-anchor="middle">screencast,</text>
+            <text x="95" y="119" class="dg-small" text-anchor="middle">monitor rate</text>
+            <rect x="190" y="58" width="130" height="70" rx="8" class="dg-box"/>
+            <text x="255" y="86" class="dg-text" text-anchor="middle">videorate</text>
+            <text x="255" y="104" class="dg-small" text-anchor="middle">keeps 8 frames</text>
+            <text x="255" y="119" class="dg-small" text-anchor="middle">per second</text>
+            <rect x="350" y="58" width="130" height="70" rx="8" class="dg-box"/>
+            <text x="415" y="86" class="dg-text" text-anchor="middle">glcolorscale</text>
+            <text x="415" y="104" class="dg-small" text-anchor="middle">2560×1440 →</text>
+            <text x="415" y="119" class="dg-small" text-anchor="middle">1920×1080</text>
+            <rect x="510" y="58" width="130" height="70" rx="8" class="dg-box"/>
+            <text x="575" y="86" class="dg-text" text-anchor="middle">glcolorconvert</text>
+            <text x="575" y="104" class="dg-small" text-anchor="middle">to NV12</text>
+            <text x="575" y="119" class="dg-small" text-anchor="middle">(a shader)</text>
+            <rect x="670" y="58" width="130" height="70" rx="8" class="dg-box"/>
+            <text x="735" y="86" class="dg-text" text-anchor="middle">NVENC H.265</text>
+            <text x="735" y="104" class="dg-small" text-anchor="middle">constant QP 20,</text>
+            <text x="735" y="119" class="dg-small" text-anchor="middle">keyframe every 2 s</text>
+            <rect x="830" y="58" width="120" height="70" rx="8" class="dg-box"/>
+            <text x="890" y="86" class="dg-text" text-anchor="middle">splitmuxsink</text>
+            <text x="890" y="104" class="dg-small" text-anchor="middle">Matroska,</text>
+            <text x="890" y="119" class="dg-small" text-anchor="middle">2 minutes each</text>
+          </g>
+          <path d="M160,93 H186" class="dg-arrow" marker-end="url(#ah1)"/>
+          <path d="M320,93 H346" class="dg-arrow" marker-end="url(#ah1)"/>
+          <path d="M480,93 H506" class="dg-arrow" marker-end="url(#ah1)"/>
+          <path d="M640,93 H666" class="dg-arrow" marker-end="url(#ah1)"/>
+          <path d="M800,93 H826" class="dg-arrow" marker-end="url(#ah1)"/>
+          <text x="30" y="190" class="dg-mono">~/.local/share/champollion/recordings/1771300-kingdom-come-deliverance-ii/&lt;date&gt;/&lt;time&gt;_NNN.mkv</text>
+          <text x="30" y="214" class="dg-small">Without an NVIDIA encoder, the same chain runs on the CPU: videoconvert, videoscale, then x265 (superfast).</text>
+        </svg>
+      </div>
+      <figcaption>Dropping frames first matters: the compositor sends frames at the monitor's refresh rate, and every element after <code>videorate</code> only sees the 8 kept each second.</figcaption>
+    </figure>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Setting</th><th>Default</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>CHAMPOLLION_FRAMERATE</code></td><td class="mono">8</td><td>Frames per second recorded. Was 15 until 15 October; the reader never used more than 8.</td></tr>
+          <tr><td><code>CHAMPOLLION_MAX_HEIGHT</code></td><td class="mono">1080</td><td>Frames taller than this are scaled down, keeping the screen's proportions. 0 records at full size.</td></tr>
+          <tr><td><code>CHAMPOLLION_QP</code></td><td class="mono">20</td><td>Encoder quantizer, 0 to 51: lower keeps text sharper but makes bigger files.</td></tr>
+          <tr><td><code>CHAMPOLLION_SEGMENT_MINUTES</code></td><td class="mono">2</td><td>Length of each file. A file is read once it's finished, and a crash only loses the current one.</td></tr>
+          <tr><td><code>CHAMPOLLION_APP_ID</code></td><td class="mono">1771300</td><td>The Steam game to watch.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">One evening</div>
+      <h2>How big the files get</h2>
+      <p>The session of 14 October, still recorded the old way: full 2560×1440 at 15 frames per second. Sizes swing with what's on screen, since the encoder keeps a constant quality rather than a constant bitrate: the first file, mostly menus, is the smallest, while moving scenery costs far more.</p>
+    </div>
+    <figure class="figure">
+      <div class="figure-title">Size of each 2-minute file, 14 October</div>
+      <div class="figure-sub">Megabytes · 2560×1440, 15 frames per second, QP 20</div>
+      <div id="chart-segments"></div>
+    </figure>
+    <div class="stats">
+      <div class="stat"><span class="label">Per minute of play, until 15 October</span><span class="value">45 MB</span><span class="note">2560×1440, 15 frames per second</span></div>
+      <div class="stat"><span class="label">Per minute of play, since 16 October</span><span class="value">10 MB</span><span class="note">1920×1080, 8 frames per second: about 4 times less</span></div>
+      <div class="stat"><span class="label">Deleted after being read</span><span class="value">1.9 GB</span><span class="note">the 25 recordings made until 16 October, on 17 October</span></div>
+    </div>
+    <div class="callout">
+      <strong>The <code>.mkv</code> files were really MP4.</strong>
+      <p>Every recording until 16 October began with an MP4 <code>ftyp</code> box. <code>splitmuxsink</code> creates its muxer as soon as it is linked, which happens while the pipeline description is parsed; the recorder chose Matroska afterwards, too late, first by handing it an element, then by naming its factory. A test with both orders confirmed it. The muxer is now named in the description itself (<code>splitmuxsink muxer-factory=matroskamux</code>), and recordings are Matroska since 16 October, 23:29. It matters because Matroska stays readable up to the last frame if the daemon is killed mid-file.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Time to study</div>
+      <h2>The study lock</h2>
+      <p>Every 30 seconds the daemon asks the backend how many cards are due. Two thresholds, far apart, decide what happens. If the game unlocked just under 50, it would lock again a few minutes into playing.</p>
+    </div>
+    <figure class="figure">
+      <div class="diagram narrow">
+        <svg viewBox="0 0 860 280" role="img" aria-labelledby="lock-t lock-d">
+          <title id="lock-t">Study lock states</title>
+          <desc id="lock-d">Unlocked becomes locked when 50 or more cards are due; locked becomes unlocked when fewer than 10 are due.</desc>
+          <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="dg-arrowhead"/></marker></defs>
+          <rect x="40" y="70" width="260" height="120" rx="60" class="dg-box"/>
+          <text x="170" y="118" class="dg-title" text-anchor="middle">Unlocked</text>
+          <text x="170" y="140" class="dg-small" text-anchor="middle">the game can run,</text>
+          <text x="170" y="157" class="dg-small" text-anchor="middle">and is recorded</text>
+          <rect x="560" y="70" width="260" height="120" rx="60" class="dg-desktop"/>
+          <text x="690" y="118" class="dg-title" text-anchor="middle">Locked</text>
+          <text x="690" y="140" class="dg-small" text-anchor="middle">closed each time it starts;</text>
+          <text x="690" y="157" class="dg-small" text-anchor="middle">a file remembers it</text>
+          <path d="M300,105 C390,60 470,60 556,105" class="dg-arrow" marker-end="url(#ah2)"/>
+          <text x="430" y="30" class="dg-title" text-anchor="middle">50 or more cards due</text>
+          <text x="430" y="49" class="dg-small" text-anchor="middle">notification, SIGTERM, SIGKILL 10 s later</text>
+          <path d="M556,158 C470,205 390,205 304,158" class="dg-arrow" marker-end="url(#ah2)"/>
+          <text x="430" y="222" class="dg-title" text-anchor="middle">fewer than 10 due</text>
+          <text x="430" y="242" class="dg-small" text-anchor="middle">after reviewing on the phone</text>
+          <text x="430" y="272" class="dg-mono" text-anchor="middle">backend unreachable → the game may run (a network problem never blocks it)</text>
+        </svg>
+      </div>
+      <figcaption>Thresholds are <code>CHAMPOLLION_LOCK_AT</code> (50; 0 turns the lock off) and <code>CHAMPOLLION_UNLOCK_BELOW</code> (10). The lock survives a restart of the daemon through <code>~/.local/state/champollion/locked</code>.</figcaption>
+    </figure>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Time, 14 October</th><th>What the daemon logged</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">22:20:33</td><td>Only 9 cards due: game unlocked</td></tr>
+          <tr><td class="mono">22:22:39</td><td>Game started, recording began</td></tr>
+          <tr><td class="mono">22:26:53</td><td>2 cards made from the recording, <em>jízda</em> and <em>bezstarostný</em>, and sent to the backend</td></tr>
+          <tr><td class="mono">22:34:35</td><td>50 cards due: game locked, "Time to study" notification, SIGTERM</td></tr>
+          <tr><td class="mono">22:34:37</td><td>The game quit on its own, 2 seconds later; no SIGKILL needed</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose muted">A word counts a few minutes after it was on screen: its 2-minute file has to finish, be read, then be made into a card. By the next morning, 229 cards were due.</p>
+  </section>
+
+  <nav class="next" aria-label="Next page">
+    <a href="index.html"><span>Previous</span><strong>Overview</strong></a>
+    <a href="reading.html" style="text-align:right"><span>Next</span><strong>Reading the screen</strong></a>
+  </nav>
+</main>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const segments = [
+    ["22-22-39_000", 42.2], ["22-22-39_001", 66.9], ["22-22-39_002", 110.7],
+    ["22-22-39_003", 129.2], ["22-22-39_004", 88.3], ["22-22-39_005", 105.6],
+  ];
+  Charts.bars(document.getElementById("chart-segments"), {
+    title: "Size of each 2-minute recording on 14 October, in megabytes",
+    data: segments.map(([label, value], i) => ({
+      label: `${label} · ${String(22 + Math.floor((22 + i * 2) / 60)).padStart(2, "0")}:${String((22 + i * 2) % 60).padStart(2, "0")}`,
+      value, color: "series-1",
+    })),
+    format: (v) => v.toFixed(0) + " MB",
+    tick: (v) => v + " MB",
+    unit: "",
+    table: { head: ["File", "Megabytes"], rows: segments.map(([l, v]) => [l + ".mkv", v.toFixed(1)]) },
+  });
+});
+</script>
+</body>
+</html>

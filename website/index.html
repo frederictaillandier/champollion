@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Champollion</title>
+<meta name="description" content="How Champollion turns playing Kingdom Come: Deliverance II into learning Czech.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="index.html"><span class="brand-mark">Ch</span>Champollion</a>
+    <nav class="nav" aria-label="Pages">
+      <a href="index.html" aria-current="page">Overview</a>
+      <a href="recording.html">Recording</a>
+      <a href="reading.html">Reading the screen</a>
+      <a href="game-text.html">The game's text</a>
+      <a href="cards.html">Cards and reviews</a>
+      <a href="phone.html">Phone widget</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="page-head">
+    <div class="eyebrow">Learning Czech from Kingdom Come: Deliverance II</div>
+    <h1>Champollion</h1>
+    <p class="lede">A set of Rust tools that watches you play a game in Czech, reads the words on screen, turns the new ones into flashcards, and closes the game when it's time to review them. You only learn words you actually met while playing.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">The loop</div>
+      <h2>From a word on screen to a word you know</h2>
+    </div>
+    <ol class="steps prose">
+      <li><div><strong>You play.</strong><span class="muted">The daemon on the desktop sees the game start and records the screen to 2-minute video files, encoded on the graphics card's separate video chip.</span></div></li>
+      <li><div><strong>The text is read.</strong><span class="muted">Each finished file is sent to a Jetson board on the home network, which reads it on its GPU, so the game keeps the whole PC.</span></div></li>
+      <li><div><strong>Lines are corrected.</strong><span class="muted">On the Jetson too, each line read is matched against the game's own Czech text, so misread accents come back exact.</span></div></li>
+      <li><div><strong>New words become cards.</strong><span class="muted">Claude turns new words into flashcards: dictionary form, translation, meaning in that sentence, and the sentence itself.</span></div></li>
+      <li><div><strong>You review on your phone.</strong><span class="muted">A home-screen widget shows the cards due, spaced out like Anki, with the word spoken.</span></div></li>
+      <li><div><strong>The game waits for you.</strong><span class="muted">When 50 cards are due, the daemon closes the game, and keeps it closed until fewer than 10 are.</span></div></li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Architecture</div>
+      <h2>Four machines, one loop</h2>
+      <p class="muted">Colour shows which machine does the work, here and on every page.</p>
+    </div>
+    <figure class="figure">
+      <div class="diagram">
+        <svg viewBox="0 0 980 520" role="img" aria-labelledby="arch-title arch-desc">
+          <title id="arch-title">Champollion architecture</title>
+          <desc id="arch-desc">The desktop records the game and makes cards; the Jetson will read the recordings on its GPU; the server stores and schedules cards; the phone reviews them.</desc>
+          <defs>
+            <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="dg-arrowhead"/></marker>
+          </defs>
+          <!-- Desktop -->
+          <rect x="20" y="20" width="400" height="330" rx="14" class="dg-desktop"/>
+          <text x="40" y="48" class="dg-head-desktop">DESKTOP · RYZEN 5 5600X · RTX 3070</text>
+          <rect x="40" y="64" width="160" height="54" rx="8" class="dg-box"/>
+          <text x="120" y="88" class="dg-text" text-anchor="middle">Kingdom Come II</text>
+          <text x="120" y="106" class="dg-small" text-anchor="middle">Steam game</text>
+          <rect x="240" y="64" width="160" height="54" rx="8" class="dg-box"/>
+          <text x="320" y="88" class="dg-text" text-anchor="middle">Recorder</text>
+          <text x="320" y="106" class="dg-small" text-anchor="middle">PipeWire → NVENC</text>
+          <rect x="240" y="146" width="160" height="54" rx="8" class="dg-box"/>
+          <text x="320" y="170" class="dg-text" text-anchor="middle">Word tracking</text>
+          <text x="320" y="188" class="dg-small" text-anchor="middle">new words, vocabulary</text>
+          <rect x="240" y="228" width="160" height="54" rx="8" class="dg-box"/>
+          <text x="320" y="252" class="dg-text" text-anchor="middle">Card maker</text>
+          <text x="320" y="270" class="dg-small" text-anchor="middle">claude -p (Sonnet)</text>
+          <rect x="40" y="228" width="160" height="54" rx="8" class="dg-box"/>
+          <text x="120" y="252" class="dg-text" text-anchor="middle">Study lock</text>
+          <text x="120" y="270" class="dg-small" text-anchor="middle">closes the game at 50</text>
+          <path d="M200,91 H236" class="dg-arrow" marker-end="url(#ah)"/>
+          <path d="M320,200 V224" class="dg-arrow" marker-end="url(#ah)"/>
+          <path d="M120,228 V122" class="dg-arrow" marker-end="url(#ah)"/>
+          <text x="130" y="178" class="dg-mono">SIGTERM</text>
+
+          <!-- Jetson -->
+          <rect x="560" y="20" width="400" height="190" rx="14" class="dg-jetson"/>
+          <text x="580" y="48" class="dg-head-jetson">JETSON AGX XAVIER · LAN</text>
+          <rect x="580" y="64" width="110" height="54" rx="8" class="dg-box"/>
+          <text x="635" y="88" class="dg-text" text-anchor="middle">Decoder</text>
+          <text x="635" y="106" class="dg-small" text-anchor="middle">nvv4l2decoder</text>
+          <rect x="705" y="64" width="110" height="54" rx="8" class="dg-box"/>
+          <text x="760" y="88" class="dg-text" text-anchor="middle">GPU OCR</text>
+          <text x="760" y="106" class="dg-small" text-anchor="middle">PP-OCRv5</text>
+          <rect x="830" y="64" width="110" height="54" rx="8" class="dg-box"/>
+          <text x="885" y="88" class="dg-text" text-anchor="middle">Matcher</text>
+          <text x="885" y="106" class="dg-small" text-anchor="middle">game's text</text>
+          <path d="M690,91 H701" class="dg-arrow" marker-end="url(#ah)"/>
+          <path d="M815,91 H826" class="dg-arrow" marker-end="url(#ah)"/>
+          <text x="580" y="150" class="dg-small">Reads each recording it's sent, then corrects</text>
+          <text x="580" y="170" class="dg-small">every line with the game's own text.</text>
+          <text x="580" y="190" class="dg-mono">12.4 frames/s at 1080p · 8 needed</text>
+
+          <!-- Server -->
+          <rect x="560" y="250" width="400" height="160" rx="14" class="dg-server"/>
+          <text x="580" y="278" class="dg-head-server">SERVER · TAILLANDIER.IO · 10.0.0.1</text>
+          <rect x="580" y="294" width="170" height="54" rx="8" class="dg-box"/>
+          <text x="665" y="318" class="dg-text" text-anchor="middle">Backend</text>
+          <text x="665" y="336" class="dg-small" text-anchor="middle">Rust · PostgreSQL</text>
+          <rect x="770" y="294" width="170" height="54" rx="8" class="dg-box"/>
+          <text x="855" y="318" class="dg-text" text-anchor="middle">Pronunciations</text>
+          <text x="855" y="336" class="dg-small" text-anchor="middle">ElevenLabs MP3s</text>
+          <path d="M750,321 H766" class="dg-arrow" marker-end="url(#ah)"/>
+          <text x="680" y="380" class="dg-small">Schedules reviews (SM-2, gaps from 10 minutes),</text>
+          <text x="680" y="398" class="dg-small">reachable only through WireGuard.</text>
+
+          <!-- Phone -->
+          <rect x="20" y="380" width="400" height="120" rx="14" class="dg-phone"/>
+          <text x="40" y="408" class="dg-head-phone">PHONE · GALAXY A17</text>
+          <rect x="40" y="424" width="360" height="54" rx="8" class="dg-box"/>
+          <text x="220" y="448" class="dg-text" text-anchor="middle">Flashcard widget</text>
+          <text x="220" y="466" class="dg-small" text-anchor="middle">home screen · works offline</text>
+
+          <!-- Links -->
+          <path d="M400,91 H576" class="dg-arrow" marker-end="url(#ah)"/>
+          <text x="488" y="80" class="dg-mono" text-anchor="middle">recordings</text>
+          <text x="488" y="108" class="dg-mono" text-anchor="middle">over SSH</text>
+          <path d="M556,173 H404" class="dg-arrow" marker-end="url(#ah)"/>
+          <text x="480" y="162" class="dg-mono" text-anchor="middle">text of each</text>
+          <text x="480" y="190" class="dg-mono" text-anchor="middle">frame</text>
+          <path d="M400,255 C500,255 520,306 576,306" class="dg-arrow" marker-end="url(#ah)"/>
+          <text x="490" y="244" class="dg-mono" text-anchor="middle">POST /cards</text>
+          <path d="M576,328 C500,328 470,302 400,302 H120 V286" class="dg-arrow" marker-end="url(#ah)"/>
+          <text x="300" y="316" class="dg-mono" text-anchor="middle">due count, every 30 s</text>
+          <path d="M408,451 C520,451 640,440 640,352" class="dg-arrow" marker-end="url(#ah)" marker-start="url(#ah)"/>
+          <text x="490" y="430" class="dg-mono" text-anchor="middle">sessions, reviews</text>
+          <text x="490" y="474" class="dg-mono" text-anchor="middle">WireGuard</text>
+        </svg>
+      </div>
+      <figcaption>The desktop records, sends each finished recording to the Jetson, makes cards from the new words and enforces the lock. The Jetson reads and corrects the text on its GPU, keeping nothing. The server holds the cards and their schedule; the phone and the desktop reach it through WireGuard only.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">In numbers</div>
+      <h2>Where things stand</h2>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="label">Lines of the game's Czech text</span><span class="value">204,083</span><span class="note">each with its English, in a 57 MB SQLite file</span></div>
+      <div class="stat"><span class="label">Cards due to lock the game</span><span class="value">50</span><span class="note">unlocked again under 10</span></div>
+      <div class="stat"><span class="label">A review session</span><span class="value">45 + 5</span><span class="note">cards due, then new words</span></div>
+      <div class="stat"><span class="label">Jetson GPU reading speed</span><span class="value">12.4/s</span><span class="note">frames at 1080p; 8 recorded per second</span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Status</div>
+      <h2>What runs today, and what's next</h2>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Part</th><th>Where</th><th>State</th></tr></thead>
+        <tbody>
+          <tr><td>Recording at 1080p, 8 frames per second</td><td><span class="chip desktop"><span>Desktop</span></span></td><td>In use since 15 October</td></tr>
+          <tr><td>Study lock</td><td><span class="chip desktop"><span>Desktop</span></span></td><td>In use</td></tr>
+          <tr><td>Word tracking and vocabulary</td><td><span class="chip desktop"><span>Desktop</span></span></td><td>In use; Tesseract no longer runs here</td></tr>
+          <tr><td>Card making with Claude</td><td><span class="chip desktop"><span>Desktop</span></span></td><td>In use</td></tr>
+          <tr><td>Backend: cards, schedule, pronunciations</td><td><span class="chip server"><span>Server</span></span></td><td>In use</td></tr>
+          <tr><td>Flashcard widget</td><td><span class="chip phone"><span>Phone</span></span></td><td>In use</td></tr>
+          <tr><td>Reading the recordings on the GPU (<code>champollion-gpu-ocr</code>)</td><td><span class="chip jetson"><span>Jetson</span></span></td><td>In use since 16 October</td></tr>
+          <tr><td>Correcting lines with the game's text (<code>game-text</code>)</td><td><span class="chip jetson"><span>Jetson</span></span></td><td>In use since 16 October</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Pages</div>
+      <h2>Read on</h2>
+    </div>
+    <div class="pages">
+      <a class="page-link" href="recording.html"><span class="n">01</span><span class="t">Recording and the study lock</span><span class="d">How the screen is captured, and how the game gets closed when cards pile up.</span></a>
+      <a class="page-link" href="reading.html"><span class="n">02</span><span class="t">Reading the screen</span><span class="d">Tesseract, the move to a Jetson, GPU OCR explained, and every benchmark.</span></a>
+      <a class="page-link" href="game-text.html"><span class="n">03</span><span class="t">The game's own text</span><span class="d">Matching what OCR reads against 204,083 lines from the game's files.</span></a>
+      <a class="page-link" href="cards.html"><span class="n">04</span><span class="t">Cards and reviews</span><span class="d">How Claude writes the cards, and when the backend shows them again.</span></a>
+      <a class="page-link" href="phone.html"><span class="n">05</span><span class="t">Phone widget</span><span class="d">Reviewing on the home screen, offline, and moving to a new phone.</span></a>
+    </div>
+  </section>
+</main>
+</body>
+</html>

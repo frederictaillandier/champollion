@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Reading the Screen · Champollion</title>
+<meta name="description" content="How Champollion reads the text of the game: Tesseract on the desktop, and a GPU reader on a Jetson.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/charts.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="index.html"><span class="brand-mark">Ch</span>Champollion</a>
+    <nav class="nav" aria-label="Pages">
+      <a href="index.html">Overview</a>
+      <a href="recording.html">Recording</a>
+      <a href="reading.html" aria-current="page">Reading the screen</a>
+      <a href="game-text.html">The game's text</a>
+      <a href="cards.html">Cards and reviews</a>
+      <a href="phone.html">Phone widget</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="page-head">
+    <div class="eyebrow">02 · <span class="chip desktop"><span>Desktop</span></span> <span class="chip jetson"><span>Jetson</span></span></div>
+    <h1>Reading the screen</h1>
+    <p class="lede">Every recorded frame has to be read: which words are on screen, where, and how sure the reader is. Tesseract did it on the desktop until 16 October. Since then a GPU reader on a Jetson board reads the recordings faster than they're made, without taking anything from the game.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">The problem</div>
+      <h2>The desktop can't read while you play</h2>
+      <p>The daemon reads finished recordings with Tesseract, on threads that only get the CPU time the game leaves (<code>SCHED_IDLE</code>), and with a single reader while the game runs. On 14 October the first 2-minute file took <strong>12 minutes</strong> to read during play. Once the game closed, two readers caught up at about 2 minutes 15 seconds per file. Tesseract itself isn't slow: one Ryzen core reads a frame in 0.19 s. The game just needs those cores.</p>
+    </div>
+    <figure class="figure">
+      <div class="figure-title">How many frames each reader gets through per second</div>
+      <div class="figure-sub">The same Kingdom Come recordings · the recorder now makes 8 frames per second</div>
+      <div id="chart-speed"></div>
+      <figcaption>Desktop figures come from the daemon's log on 14 October (480 frames per file). Jetson figures are benchmarks on the same recordings, in the board's 30 W power mode. The last bar reads 1080p frames, the size recorded since 15 October.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">The Jetson</div>
+      <h2>A spare board on the LAN</h2>
+      <p>The Jetson AGX Xavier sits at <code>192.168.0.43</code> (<code>tegra-ubuntu.local</code>): 8 ARM cores, 30 GB of memory, a 512-core GPU, and a hardware H.265 decoder. It runs Ubuntu 20.04 with JetPack 5.1.6. Nothing it needed was installed, and sudo asks for a password, so everything went into the user's home folder:</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Needed</th><th>How it got there, without sudo</th></tr></thead>
+        <tbody>
+          <tr><td>CUDA 11.4, cuDNN 8.6, TensorRT 8.5</td><td>NVIDIA's Jetson packages downloaded with <code>apt-get download</code> and unpacked with <code>dpkg -x</code> into <code>~/gpu/root</code> (2.2 GB)</td></tr>
+          <tr><td>Disk space</td><td>The eMMC was 95% full of Ollama models; <code>gpt-oss:20b</code> and <code>qwen2.5-coder:7b</code> were removed, freeing 18 GB</td></tr>
+          <tr><td>Rust</td><td>rustup, into <code>~/.cargo</code></td></tr>
+          <tr><td>A C++ compiler</td><td>conda-forge's GCC 10, through micromamba</td></tr>
+          <tr><td><code>h265parse</code></td><td>One plugin unpacked from Ubuntu's <code>gstreamer1.0-plugins-bad</code> into <code>~/gpu/gst</code></td></tr>
+          <tr><td>Tesseract 5, for comparison</td><td>conda-forge, with the desktop's own <code>ces.traineddata</code>; removed with the other benchmark files on 17 October</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">GPU OCR, explained</div>
+      <h2>No training, no labelled data</h2>
+      <p>OCR here means two trained models, downloaded ready to use. PaddleOCR's PP-OCRv5 has a <strong>detector</strong>, which marks where text is, and a <strong>recognizer</strong>, which reads one line at a time. Its Latin recognizer covers Czech, Č Ě Ř Ů included.</p>
+    </div>
+    <div class="lessons">
+      <div class="lesson"><h3>The model: the recipe</h3><p>Millions of numbers learnt from labelled text by the people who trained it. Like Tesseract's <code>ces.traineddata</code>, which also came ready-made.</p></div>
+      <div class="lesson"><h3>ONNX: the recipe's format</h3><p>A standard file format for trained models, so they can run outside the tool that trained them. Like PDF for documents.</p></div>
+      <div class="lesson"><h3>TensorRT: the kitchen</h3><p>NVIDIA's engine for running any model fast on their GPUs. It knows nothing about text: <code>trtexec</code> compiles each ONNX file into an engine tuned for this exact GPU.</p></div>
+    </div>
+    <figure class="figure">
+      <div class="figure-title">One frame through the GPU reader</div>
+      <div class="diagram">
+        <svg viewBox="0 0 980 330" role="img" aria-labelledby="ocr-t">
+          <title id="ocr-t">The GPU reader's steps for one frame</title>
+          <defs><marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="dg-arrowhead"/></marker></defs>
+          <rect x="10" y="10" width="960" height="310" rx="14" class="dg-jetson"/>
+          <text x="30" y="38" class="dg-head-jetson">ON THE JETSON · ONE DECODING THREAD, TWO MODEL THREADS</text>
+          <!-- row 1 -->
+          <rect x="30" y="58" width="170" height="78" rx="8" class="dg-box"/>
+          <text x="115" y="84" class="dg-text" text-anchor="middle">Hardware decoder</text>
+          <text x="115" y="104" class="dg-small" text-anchor="middle">nvv4l2decoder, keeps</text>
+          <text x="115" y="120" class="dg-small" text-anchor="middle">8 frames per second</text>
+          <rect x="230" y="58" width="170" height="78" rx="8" class="dg-box"/>
+          <text x="315" y="84" class="dg-text" text-anchor="middle">Scale for detection</text>
+          <text x="315" y="104" class="dg-small" text-anchor="middle">960×544, BGR,</text>
+          <text x="315" y="120" class="dg-small" text-anchor="middle">normalized (Rust)</text>
+          <rect x="430" y="58" width="170" height="78" rx="8" class="dg-box"/>
+          <text x="515" y="84" class="dg-text" text-anchor="middle">Detector</text>
+          <text x="515" y="104" class="dg-small" text-anchor="middle">PP-OCRv5 mobile,</text>
+          <text x="515" y="120" class="dg-small" text-anchor="middle">TensorRT · 30 ms</text>
+          <rect x="630" y="58" width="320" height="78" rx="8" class="dg-box"/>
+          <text x="790" y="84" class="dg-text" text-anchor="middle">Text boxes (Rust)</text>
+          <text x="790" y="104" class="dg-small" text-anchor="middle">pixels above 0.3 grouped into regions, kept</text>
+          <text x="790" y="120" class="dg-small" text-anchor="middle">above 0.6 on average, grown back by 1.5</text>
+          <!-- row 2 -->
+          <rect x="630" y="186" width="320" height="78" rx="8" class="dg-box"/>
+          <text x="790" y="212" class="dg-text" text-anchor="middle">Cut lines from the full frame</text>
+          <text x="790" y="232" class="dg-small" text-anchor="middle">scaled to 48 px high, batched by width</text>
+          <text x="790" y="248" class="dg-small" text-anchor="middle">(fast_image_resize)</text>
+          <rect x="430" y="186" width="170" height="78" rx="8" class="dg-box"/>
+          <text x="515" y="212" class="dg-text" text-anchor="middle">Recognizer</text>
+          <text x="515" y="232" class="dg-small" text-anchor="middle">Latin PP-OCRv5,</text>
+          <text x="515" y="248" class="dg-small" text-anchor="middle">504 classes per step</text>
+          <rect x="230" y="186" width="170" height="78" rx="8" class="dg-box"/>
+          <text x="315" y="212" class="dg-text" text-anchor="middle">Spell words (Rust)</text>
+          <text x="315" y="232" class="dg-small" text-anchor="middle">likeliest letter per step,</text>
+          <text x="315" y="248" class="dg-small" text-anchor="middle">confidence 0–100 per word</text>
+          <rect x="30" y="186" width="170" height="78" rx="8" class="dg-box"/>
+          <text x="115" y="212" class="dg-text" text-anchor="middle">Match</text>
+          <text x="115" y="232" class="dg-small" text-anchor="middle">against the game's</text>
+          <text x="115" y="248" class="dg-small" text-anchor="middle">own Czech text</text>
+          <path d="M200,97 H226" class="dg-arrow" marker-end="url(#ah3)"/>
+          <path d="M400,97 H426" class="dg-arrow" marker-end="url(#ah3)"/>
+          <path d="M600,97 H626" class="dg-arrow" marker-end="url(#ah3)"/>
+          <path d="M790,136 V182" class="dg-arrow" marker-end="url(#ah3)"/>
+          <path d="M630,225 H604" class="dg-arrow" marker-end="url(#ah3)"/>
+          <path d="M430,225 H404" class="dg-arrow" marker-end="url(#ah3)"/>
+          <path d="M230,225 H204" class="dg-arrow" marker-end="url(#ah3)"/>
+          <text x="30" y="300" class="dg-mono">Bezstarostná jízda, 0h, 06/10/2026 12:22  →  Bezstarostná (100) jízda (99)  →  quest "Bezstarostná jízda" (Easy Riders)</text>
+        </svg>
+      </div>
+      <figcaption>Only the detector sees a small frame; lines are cut from the full-size one so small letters and accents keep their detail. The C++ part is a 170-line wrapper around TensorRT; everything else is Rust (<code>gpu-ocr/</code>).</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">What was learnt</div>
+      <h2>Five things that didn't work the first time</h2>
+    </div>
+    <div class="lessons">
+      <div class="lesson"><h3>Half precision broke the big detector</h3><p>Built in FP16, PaddleOCR's large "server" detector lost whole menu items: "Nová hra", "Nastavení" and "Autoři" never lit up in its map. In FP32 it read everything, even the gothic logo, but took 458 ms. The small "mobile" detector reads as well in 52 ms.</p></div>
+      <div class="lesson"><h3>Resizing was slower than the GPU</h3><p>The <code>image</code> crate took 140 ms to scale one 2560×1440 frame on the ARM cores, against 57 ms of detection on the GPU. <code>fast_image_resize</code>, which uses the CPU's vector instructions, brought it down to a few milliseconds.</p></div>
+      <div class="lesson"><h3>A flexible engine never finished</h3><p>Asking TensorRT for one engine fitting any frame up to 2560×1440 took 21 GB of memory and was still tuning after 29 minutes. A fixed input size builds in under 20.</p></div>
+      <div class="lesson"><h3>Libraries found at build time, lost at run time</h3><p>TensorRT needs <code>libcudla.so.1</code>, which the program didn't find although its own search path listed the folder. That path was RUNPATH, which doesn't apply to a library's own dependencies; <code>--disable-new-dtags</code> makes it RPATH, which does.</p></div>
+      <div class="lesson"><h3>The official model wasn't better</h3><p>PaddlePaddle's own Latin recognizer knows 836 characters, against 502 in the community conversion. It found 281 confident words instead of 282, merged some (<em>playedkingdom</em>) and read 15 ms slower.</p></div>
+    </div>
+    <figure class="figure">
+      <div class="figure-title">GPU time per frame of each detection engine</div>
+      <div class="figure-sub">Milliseconds, measured by trtexec · lower is faster</div>
+      <div id="chart-engines"></div>
+      <figcaption>The server detector in FP16 is fast but misses text; it's shown for comparison only. In use: the mobile detector in FP32 at 960×544.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Tuning</div>
+      <h2>More workers, smaller frames</h2>
+      <p>Each worker thread loads its own copy of the engines. With one worker, the GPU waits while the CPU scales frames and spells words; a second worker fills those gaps. After that the GPU is busy all the time and more workers only queue for it. In its 30 W mode the Jetson already lets the GPU run at 1,339 of 1,377 MHz, so full power wouldn't change much.</p>
+    </div>
+    <div class="two">
+      <figure class="figure">
+        <div class="figure-title">Frames read per second, by number of workers</div>
+        <div class="figure-sub">A 2-minute recording at full size, 4 frames per second kept</div>
+        <div id="chart-workers"></div>
+      </figure>
+      <figure class="figure">
+        <div class="figure-title">Frames read per second, by recorded size</div>
+        <div class="figure-sub">8 frames per second kept, 2 workers, detection at 960 wide</div>
+        <div id="chart-sizes"></div>
+      </figure>
+    </div>
+    <p class="prose">Detecting on frames scaled to 960 wide instead of 1280 made reading 30% faster and lost only small English text from Steam's overlay; matched against the game's text, both found the same 31 Czech lines. Smaller recordings help a little more, and at every size tested the same Czech lines were found. 720p isn't faster than 1080p and misreads small text more, hence <strong>1080p at 8 frames per second</strong>.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Quality</div>
+      <h2>About as good as Tesseract, with different mistakes</h2>
+      <p>On 120 frames from 14 October, both readers found about 300 distinct words with confidence 70 or more, 230 of them in common. The GPU reader reads far less junk from scenery (about 9 lines per frame; on one 6 October frame over scenery, Tesseract reported 42, mostly garbage), but sometimes drops a Czech accent. The same words are read correctly in other frames, so the errors come and go; adding a margin above and below lines didn't help.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Reader</th><th class="num">Confident words</th><th class="num">Shared with Tesseract</th><th>Typical errors</th></tr></thead>
+        <tbody>
+          <tr><td>Tesseract 5, desktop</td><td class="num">298</td><td class="num">–</td><td><span class="err">deliúerance</span>, <span class="err">vlew</span>, <span class="err">Dezstarostná</span></td></tr>
+          <tr><td>GPU reader, mobile detector</td><td class="num">282</td><td class="num">230</td><td><span class="err">ceské</span> (české), <span class="err">zemé</span> (země), <span class="err">stoji</span> (stojí)</td></tr>
+          <tr><td>GPU reader, official recognizer</td><td class="num">281</td><td class="num">226</td><td><span class="err">jizda</span>, <span class="err">stoleti</span>, <span class="err">playedkingdom</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose">Both kinds of error disappear once lines are matched against the game's own text: see <a href="game-text.html">the next page</a>.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">In use</div>
+      <h2>How the desktop and the Jetson work together</h2>
+      <p>No service runs on the Jetson and nothing is stored there. When a 2-minute recording is finished, the daemon on the desktop starts the reader over SSH and streams the file to it:</p>
+    </div>
+    <pre><code>ssh 192.168.0.43 '~/ocr/read-recording 8' &lt; 23-29-43_000.mkv</code></pre>
+    <ol class="steps prose">
+      <li><div><strong>The Jetson reads every frame</strong><span class="muted">8 per second, as recorded, on the GPU; the recording sits in a temporary file only while it's read.</span></div></li>
+      <li><div><strong>It corrects each line with the game's text</strong><span class="muted">A copy of the localization database sits in <code>~/ocr/game-text.sqlite</code>; lines found there come back with their exact Czech.</span></div></li>
+      <li><div><strong>It sends back each frame's text, in order</strong><span class="muted">One JSON object per frame, holding the text in Tesseract's own format, so the daemon parses it with the code it always had.</span></div></li>
+      <li><div><strong>The desktop carries on as before</strong><span class="muted">Word tracking, the vocabulary and card making are unchanged. Only the frames saved for reference are decoded locally, about 2 seconds each.</span></div></li>
+    </ol>
+    <div class="stats">
+      <div class="stat"><span class="label">A 2-minute recording, read</span><span class="value">65 s</span><span class="note">engine loading included, first run on 16 October</span></div>
+      <div class="stat"><span class="label">Desktop CPU used for reading</span><span class="value">none</span><span class="note">Tesseract no longer runs there</span></div>
+      <div class="stat"><span class="label">If the Jetson is off</span><span class="value">wait</span><span class="note">recordings stay unread; the daemon retries every minute</span></div>
+    </div>
+    <div class="callout">
+      <strong>Tesseract is gone</strong>
+      <p>Once the Jetson had read its first sessions, the daemon's own reading path and its Tesseract dependency were removed (17 October). The daemon keeps only the parser for Tesseract's text format, which is how it reads the Jetson's results. Without the Jetson, recordings wait: no text is read on the desktop any more.</p>
+    </div>
+    <p class="prose muted">Set with <code>CHAMPOLLION_OCR_REMOTE=192.168.0.43</code> and <code>CHAMPOLLION_OCR_FPS=8</code> in the daemon's service. On the Jetson, <code>~/ocr/read-recording</code> is <code>gpu-ocr/jetson/read-recording</code>; it loads the engines (about 17 seconds) and the game's text (about 1 second) for each recording.</p>
+  </section>
+
+  <nav class="next" aria-label="Next page">
+    <a href="recording.html"><span>Previous</span><strong>Recording and the study lock</strong></a>
+    <a href="game-text.html" style="text-align:right"><span>Next</span><strong>The game's own text</strong></a>
+  </nav>
+</main>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const perSecond = (v) => v.toFixed(1) + "/s";
+  const speed = [
+    { label: "Desktop Tesseract, while playing", value: 0.7, color: "series-1", note: "first file of 14 October: 480 frames in 12 minutes" },
+    { label: "Desktop Tesseract, game closed", value: 3.5, color: "series-1", note: "2 workers; files took 88 to 166 s" },
+    { label: "Jetson Tesseract, 8 cores", value: 3.1, color: "series-3", note: "8 processes, one per core" },
+    { label: "Jetson GPU, detection at 1280", value: 7.9, color: "series-3", note: "2 workers, full-size recording" },
+    { label: "Jetson GPU, detection at 960", value: 11.1, color: "series-3", note: "2 workers, full-size recording" },
+    { label: "Jetson GPU, 1080p recording", value: 12.4, color: "series-3", note: "2 workers, detection at 960, 8 frames/s kept" },
+  ];
+  Charts.bars(document.getElementById("chart-speed"), {
+    title: "Frames read per second by each reader",
+    data: speed,
+    legend: [{ color: "series-1", name: "Desktop" }, { color: "series-3", name: "Jetson" }],
+    target: { value: 8, label: "8 recorded per second" },
+    format: perSecond,
+    unit: "frames per second",
+    table: { head: ["Reader", "Frames per second"], rows: speed.map((d) => [d.label, d.value.toFixed(1)]) },
+  });
+
+  const engines = [
+    { label: "Server detector, FP32, 1280×736", value: 458, note: "reads everything, too slow" },
+    { label: "Server detector, FP16, 1280×736", value: 144, note: "misses whole menu items" },
+    { label: "Mobile detector, FP32, 1280×736", value: 52 },
+    { label: "Mobile detector, FP16, 1280×736", value: 40, note: "same words as FP32 on 120 frames" },
+    { label: "Mobile detector, FP32, 960×544", value: 30, note: "in use" },
+  ].map((d) => ({ ...d, color: "series-3" }));
+  Charts.bars(document.getElementById("chart-engines"), {
+    title: "GPU time per frame of each detection engine, in milliseconds",
+    data: engines,
+    format: (v) => v + " ms",
+    tick: (v) => v + " ms",
+    table: { head: ["Engine", "Milliseconds"], rows: engines.map((d) => [d.label, d.value]) },
+  });
+
+  Charts.lines(document.getElementById("chart-workers"), {
+    title: "Frames read per second by number of workers",
+    x: [1, 2, 3, 4],
+    xName: "Workers:",
+    xLabel: "Workers",
+    series: [
+      { name: "Detection at 960", color: "series-1", values: [7.1, 11.1, 11.8, null] },
+      { name: "Detection at 1280", color: "series-2", values: [5.8, 7.9, 8.4, 8.4] },
+    ],
+    legend: [{ color: "series-1", name: "Detection at 960" }, { color: "series-2", name: "Detection at 1280" }],
+    format: perSecond,
+    unit: "frames per second",
+    table: { head: ["Workers", "At 960", "At 1280"], rows: [[1, 7.1, 5.8], [2, 11.1, 7.9], [3, 11.8, 8.4], [4, "–", 8.4]] },
+  });
+
+  const sizes = [
+    { label: "2560×1440", value: 10.6 },
+    { label: "1920×1080 (in use)", value: 12.4 },
+    { label: "1280×720", value: 11.9 },
+  ].map((d) => ({ ...d, color: "series-3" }));
+  Charts.bars(document.getElementById("chart-sizes"), {
+    title: "Frames read per second by recorded size",
+    data: sizes,
+    target: { value: 8, label: "8 needed" },
+    format: perSecond,
+    unit: "frames per second",
+    table: { head: ["Recorded size", "Frames per second"], rows: sizes.map((d) => [d.label, d.value.toFixed(1)]) },
+  });
+});
+</script>
+</body>
+</html>
