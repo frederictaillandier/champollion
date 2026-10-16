@@ -1,3 +1,5 @@
 [workspace]
-members = ["api", "backend", "daemon"]
+members = ["api", "backend", "daemon", "game-text", "gpu-ocr"]
+# gpu-ocr links NVIDIA TensorRT, which only the Jetson has.
+default-members = ["api", "backend", "daemon", "game-text"]
 resolver = "3"

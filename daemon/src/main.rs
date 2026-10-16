@@ -37,8 +37,13 @@ struct Args {
     app_id: u32,
 
     /// Frames per second of the recording; each extra frame costs CPU time
-    #[arg(long, default_value_t = 15, env = "CHAMPOLLION_FRAMERATE")]
+    #[arg(long, default_value_t = 8, env = "CHAMPOLLION_FRAMERATE")]
     framerate: u32,
+
+    /// Height the recording is scaled down to, keeping the screen's
+    /// proportions, when the screen is taller; 0 keeps the screen's size
+    #[arg(long, default_value_t = 1080, env = "CHAMPOLLION_MAX_HEIGHT")]
+    max_height: u32,
 
     /// Encoder quantizer, 0-51: lower keeps text sharper but makes bigger files
     #[arg(long, default_value_t = 20, env = "CHAMPOLLION_QP")]
@@ -58,22 +63,23 @@ struct Args {
     #[arg(long, env = "CHAMPOLLION_NO_OCR")]
     no_ocr: bool,
 
-    /// Tesseract language of the game's text (`tesseract --list-langs`)
-    #[arg(long, default_value = "ces", env = "CHAMPOLLION_OCR_LANG")]
-    ocr_lang: String,
+    /// Language of the game's text, as an ISO 639-3 code, for the cards
+    #[arg(long, default_value = "ces", env = "CHAMPOLLION_LANG")]
+    lang: String,
 
-    /// Frames read per second of video
-    #[arg(long, default_value_t = 1, env = "CHAMPOLLION_OCR_FPS")]
+    /// Frames read per second of video: all of them at the recording's 8
+    #[arg(long, default_value_t = 8, env = "CHAMPOLLION_OCR_FPS")]
     ocr_fps: u32,
-
-    /// Frames read in parallel; each worker loads its own copy of the
-    /// language model
-    #[arg(long, default_value_t = 2, env = "CHAMPOLLION_OCR_WORKERS")]
-    ocr_workers: usize,
 
     /// Minimum OCR confidence (0-100) for a word to be kept
     #[arg(long, default_value_t = 70.0, env = "CHAMPOLLION_OCR_MIN_CONFIDENCE")]
     ocr_min_confidence: f32,
+
+    /// SSH destination of the Jetson reading the recordings on its GPU
+    /// (`~/ocr/read-recording` there), e.g. `192.168.0.43`; no text is read
+    /// without it
+    #[arg(long, env = "CHAMPOLLION_OCR_REMOTE")]
+    ocr_remote: Option<String>,
 
     /// Backend receiving flashcards of the words read, e.g.
     /// `http://10.0.0.1:8090`; no cards are made without it
@@ -193,6 +199,7 @@ fn main() {
     let poll_interval = Duration::from_secs_f64(args.poll_interval.max(0.1));
     let settings = Settings {
         framerate: args.framerate.max(1),
+        max_height: args.max_height,
         qp: args.qp.min(51),
         segment_secs: args.segment_minutes.max(1) * 60,
     };
@@ -218,17 +225,18 @@ fn main() {
         output_dir.display()
     );
 
-    let indexer = (!args.no_ocr).then(|| {
+    let remote = args.ocr_remote.clone().filter(|h| !h.is_empty());
+    if remote.is_none() && !args.no_ocr {
+        tracing::warn!("not reading text from recordings: CHAMPOLLION_OCR_REMOTE is not set");
+    }
+    let indexer = remote.filter(|_| !args.no_ocr).map(|remote| {
         extract::Indexer::spawn(
             extract::Config {
                 recordings_dir: output_dir.clone(),
                 text_dir: text_dir.clone(),
                 samples_per_second: args.ocr_fps,
-                workers: args.ocr_workers.max(1),
-                ocr: extract::Ocr {
-                    lang: args.ocr_lang.clone(),
-                    min_confidence: args.ocr_min_confidence,
-                },
+                min_confidence: args.ocr_min_confidence,
+                remote,
             },
             Arc::clone(&stop),
         )
@@ -238,7 +246,7 @@ fn main() {
         cards::spawn(
             cards::Config {
                 text_dir: text_dir.clone(),
-                lang: args.ocr_lang.clone(),
+                lang: args.lang.clone(),
                 claude: (!args.no_cards).then(|| cards::Claude {
                     bin: args.claude.clone(),
                     model: args.cards_model.clone(),
@@ -395,7 +403,6 @@ fn main() {
             },
         };
         if let Some(indexer) = &indexer {
-            indexer.playing.store(game.is_some(), Ordering::Relaxed);
             *indexer.recording.lock().unwrap() = recording.as_ref().map(|(_, p)| p.clone());
         }
         let key = match &state {

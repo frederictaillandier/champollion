@@ -13,8 +13,12 @@ Environment=CHAMPOLLION_CLAUDE=%h/.local/bin/claude
 # Overrides, see `champollion-daemon --help`:
 #Environment=CHAMPOLLION_APP_ID=1771300
 #Environment=CHAMPOLLION_OUTPUT_DIR=%h/champollion/recordings
-#Environment=CHAMPOLLION_FRAMERATE=15
+#Environment=CHAMPOLLION_FRAMERATE=8
+#Environment=CHAMPOLLION_MAX_HEIGHT=1080
 #Environment=CHAMPOLLION_QP=20
+# The recordings are read on a Jetson's GPU, over SSH (gpu-ocr/jetson/);
+# without it no text is read.
+Environment=CHAMPOLLION_OCR_REMOTE=192.168.0.43
 # Close the game at 50 cards due, until fewer than 10 are (0 never closes it):
 #Environment=CHAMPOLLION_LOCK_AT=50
 #Environment=CHAMPOLLION_UNLOCK_BELOW=10

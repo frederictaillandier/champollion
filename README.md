@@ -71,9 +71,10 @@ WireGuard tunnel on.
   first time, the desktop asks which screen to share: pick the game's screen.
   The choice is remembered (token in `~/.local/state/champollion/`), so later
   launches start recording without asking. Delete that file to choose again.
-- Frames stay on the GPU and are encoded to H.265 by NVENC (falls back to
-  x265 on the CPU without an NVIDIA GPU). Default: 15 fps, constant quality
-  QP 20, which keeps small text sharp.
+- Frames stay on the GPU, scaled down to 1080 pixels high (keeping the
+  screen's proportions) and encoded to H.265 by NVENC (falls back to x265
+  on the CPU without an NVIDIA GPU). Default: 8 fps, constant quality QP 20,
+  which keeps small text sharp.
 - Recordings are split into 2-minute Matroska files, which stay readable if
   the daemon is killed, and whose text is read once they are finished:
   `~/.local/share/champollion/recordings/1771300-kingdom-come-deliverance-ii/<date>/<time>_NNN.mkv`
@@ -93,25 +94,24 @@ journalctl --user -u champollion-daemon -f   # logs
 
 Options (`champollion-daemon --help`) can also be set as environment
 variables in the unit: `CHAMPOLLION_APP_ID` (another Steam game),
-`CHAMPOLLION_OUTPUT_DIR`, `CHAMPOLLION_FRAMERATE`, `CHAMPOLLION_QP`
-(lower is sharper and bigger), `CHAMPOLLION_SEGMENT_MINUTES`.
+`CHAMPOLLION_OUTPUT_DIR`, `CHAMPOLLION_FRAMERATE`, `CHAMPOLLION_MAX_HEIGHT`
+(0 keeps the screen's size), `CHAMPOLLION_QP` (lower is sharper and
+bigger), `CHAMPOLLION_SEGMENT_MINUTES`.
 
 ### Reading the text
 
-The daemon reads the finished recordings with the
-[Tesseract](https://github.com/tesseract-ocr/tesseract) OCR library
-(through the `tesseract` crate), oldest first, while the game runs too: its
-threads are `SCHED_IDLE`, so they only get the CPU time the game leaves,
-and read one frame at a time while it runs. This takes about half a CPU
-thread on a Ryzen 5 5600X.
+The finished recordings are read, oldest first, by a Jetson board on the
+home network (`CHAMPOLLION_OCR_REMOTE`, e.g. `192.168.0.43`), so the game
+keeps the whole PC. The daemon streams each file to it over SSH; the Jetson
+reads every frame on its GPU (`gpu-ocr/`), corrects each line with the
+game's own text (`game-text/`), and sends back each frame's text in
+Tesseract's TSV format. A 2-minute recording takes about a minute. If the
+Jetson can't be reached, recordings wait, and the daemon tries again every
+minute. Without `CHAMPOLLION_OCR_REMOTE`, no text is read. Setting up the
+Jetson: `docs/jetson-gpu-ocr.md`.
 
-```sh
-sudo apt install libtesseract-dev libleptonica-dev tesseract-ocr-ces   # Czech; see --ocr-lang
-```
-
-It samples 1 frame per second, reads 2 frames at a time when the game is not
-running (`--ocr-workers`;
-each worker loads its own copy of the language model) and keeps words made of letters (2+
+It reads 8 frames per second (`--ocr-fps`, all of them at the recording's
+rate) and keeps words made of letters (2+
 characters, OCR confidence >= 70). Output in
 `~/.local/share/champollion/text/<game>/`:
 
@@ -132,9 +132,9 @@ characters, OCR confidence >= 70). Output in
 - `vocabulary.tsv`: every word seen, with the frame where it first appeared.
 - `processed.txt`: recordings already read (delete a line to read it again).
 
-Options: `--no-ocr`, `--ocr-lang`, `--ocr-fps`, `--ocr-workers`,
-`--ocr-min-confidence`, `--text-dir` (or the matching `CHAMPOLLION_*`
-environment variables).
+Options: `--no-ocr`, `--ocr-remote`, `--ocr-fps`, `--ocr-min-confidence`,
+`--text-dir`, `--lang` (the game's language for the cards, `ces`) (or the
+matching `CHAMPOLLION_*` environment variables).
 
 ### Making flashcards
 

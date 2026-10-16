@@ -1,6 +1,7 @@
-use image::GrayImage;
+//! Parses text in Tesseract's TSV format, what the Jetson's reader sends:
+//! confident, word-like tokens, each with the sentence it belongs to.
+
 use serde::Serialize;
-use tesseract::Tesseract;
 
 /// A word read from a frame.
 #[derive(Debug, Clone, Serialize)]
@@ -21,8 +22,8 @@ pub struct Word {
 pub struct Screen {
     /// Words worth learning, with their sentence.
     pub words: Vec<Word>,
-    /// All the text tesseract read, line by line, noise included: for Claude
-    /// to find whole sentences in, which the daemon's own cannot always be.
+    /// All the text read, line by line, noise included: for Claude to find
+    /// whole sentences in, which the daemon's own cannot always be.
     pub lines: Vec<String>,
 }
 
@@ -33,69 +34,7 @@ impl Word {
     }
 }
 
-#[derive(Clone)]
-pub struct Ocr {
-    pub lang: String,
-    pub min_confidence: f32,
-}
-
-impl Ocr {
-    /// Checks that libtesseract can load the language data.
-    pub fn check(&self) -> Result<(), String> {
-        self.engine().map(drop)
-    }
-
-    fn engine(&self) -> Result<Tesseract, String> {
-        Tesseract::new(None, Some(&self.lang))
-            .map_err(|e| {
-                format!(
-                    "tesseract could not load the '{}' language data: {e}",
-                    self.lang
-                )
-            })?
-            // Tesseract prints warnings like "Image too small to scale" on
-            // stderr for every speck it tries to read in game scenery.
-            .set_variable("debug_file", "/dev/null")
-            .map_err(|e| e.to_string())
-    }
-
-    /// A reader owning its own Tesseract engine, for one thread.
-    pub fn reader(&self) -> Reader {
-        Reader {
-            ocr: self.clone(),
-            engine: None,
-        }
-    }
-}
-
-/// Reads frames with a Tesseract engine that is created once and reused, so
-/// the language model is only loaded once per thread.
-pub struct Reader {
-    ocr: Ocr,
-    engine: Option<Tesseract>,
-}
-
-impl Reader {
-    pub fn read(&mut self, image: &GrayImage) -> Result<Screen, String> {
-        let engine = match self.engine.take() {
-            Some(engine) => engine,
-            None => self.ocr.engine()?,
-        };
-        let (width, height) = (image.width() as i32, image.height() as i32);
-        // The engine is consumed by each step and only handed back on
-        // success; after an error it is dropped and recreated next frame.
-        let mut engine = engine
-            .set_frame(image.as_raw(), width, height, 1, width)
-            .map_err(|e| e.to_string())?
-            .recognize()
-            .map_err(|e| e.to_string())?;
-        let tsv = engine.get_tsv_text(0).map_err(|e| e.to_string())?;
-        self.engine = Some(engine);
-        Ok(parse_tsv(&tsv, self.ocr.min_confidence))
-    }
-}
-
-/// A token as tesseract returned it, before filtering.
+/// A token as read, before filtering.
 struct Token<'a> {
     paragraph: (&'a str, &'a str),
     line: &'a str,
@@ -104,13 +43,13 @@ struct Token<'a> {
     bbox: Option<[u32; 4]>,
 }
 
-/// Parses tesseract's TSV output, keeping confident, word-like tokens, each
-/// with the sentence it belongs to, and every line read.
+/// Parses Tesseract's TSV, keeping confident, word-like tokens, each with the
+/// sentence it belongs to, and every line read.
 ///
 /// Columns: level page block par line word left top width height conf text;
 /// level 5 rows are words (the header line, when present, is skipped by that
 /// check).
-fn parse_tsv(tsv: &str, min_confidence: f32) -> Screen {
+pub(super) fn parse_tsv(tsv: &str, min_confidence: f32) -> Screen {
     let tokens: Vec<Token> = tsv
         .lines()
         .filter_map(|line| {
@@ -291,5 +230,32 @@ mod tests {
         assert_eq!(sentence_of("hra"), "Nová hra");
         assert_eq!(sentence_of("století"), "Na počátku 15. století válka.");
         assert_eq!(sentence_of("nám"), "Deš nám?");
+    }
+
+    #[test]
+    fn reads_the_jetsons_output() {
+        // What champollion-gpu-ocr --frames prints: a wrapped subtitle as
+        // two lines of one block, and a menu item in another.
+        let tsv = "5\t1\t1\t1\t1\t1\t100\t200\t160\t30\t99.90\tNastavení\n\
+                   5\t1\t2\t1\t1\t1\t1000\t1000\t120\t30\t99.90\tBohuto!\n\
+                   5\t1\t2\t1\t1\t2\t1130\t1000\t90\t30\t99.50\tVytas\n\
+                   5\t1\t2\t1\t2\t1\t1000\t1036\t60\t30\t98.00\tmeč\n";
+        let screen = parse_tsv(tsv, 70.0);
+        let words: Vec<(&str, &str)> = screen
+            .words
+            .iter()
+            .map(|w| (w.text.as_str(), w.sentence.as_str()))
+            .collect();
+        assert_eq!(
+            words,
+            [
+                ("Nastavení", "Nastavení"),
+                ("Bohuto", "Bohuto!"),
+                ("Vytas", "Vytas meč"),
+                ("meč", "Vytas meč"),
+            ]
+        );
+        assert_eq!(screen.lines, ["Nastavení", "Bohuto! Vytas", "meč"]);
+        assert_eq!(screen.words[2].bbox, [1130, 1000, 90, 30]);
     }
 }

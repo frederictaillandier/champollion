@@ -1,0 +1,15 @@
+#!/bin/bash
+# Reads a recording sent on the standard input and prints its text, one JSON
+# object per frame: what champollion-daemon runs on the Jetson over SSH
+# (CHAMPOLLION_OCR_REMOTE). The frames per second to read is the argument.
+#
+# Install on the Jetson as ~/ocr/read-recording, next to ~/ocr/env.sh,
+# ~/ocr/models and ~/ocr/game-text.sqlite, the game's own text that lines are
+# corrected with (see docs/jetson-gpu-ocr.md).
+set -euo pipefail
+. ~/ocr/env.sh
+game_text=()
+[ -f ~/ocr/game-text.sqlite ] && game_text=(--game-text ~/ocr/game-text.sqlite)
+exec ~/champollion/target/release/champollion-gpu-ocr \
+    --frames --stdin --fps "${1:-8}" --workers 2 \
+    "${game_text[@]}" ~/ocr/models
