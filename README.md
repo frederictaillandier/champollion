@@ -101,7 +101,7 @@ bigger), `CHAMPOLLION_SEGMENT_MINUTES`.
 ### Reading the text
 
 The finished recordings are read, oldest first, by a Jetson board on the
-home network (`CHAMPOLLION_OCR_REMOTE`, e.g. `192.168.0.43`), so the game
+home network (`CHAMPOLLION_OCR_REMOTE`, e.g. `tegra-ubuntu.local`), so the game
 keeps the whole PC. The daemon streams each file to it over SSH; the Jetson
 reads every frame on its GPU (`gpu-ocr/`), corrects each line with the
 game's own text (`game-text/`), and sends back each frame's text in

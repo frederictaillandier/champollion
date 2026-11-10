@@ -51,7 +51,7 @@
     <div class="section-head">
       <div class="eyebrow">The Jetson</div>
       <h2>A spare board on the LAN</h2>
-      <p>The Jetson AGX Xavier sits at <code>192.168.0.43</code> (<code>tegra-ubuntu.local</code>): 8 ARM cores, 30 GB of memory, a 512-core GPU, and a hardware H.265 decoder. It runs Ubuntu 20.04 with JetPack 5.1.6. Nothing it needed was installed, and sudo asks for a password, so everything went into the user's home folder:</p>
+      <p>The Jetson AGX Xavier is <code>tegra-ubuntu.local</code>, reached by name because its address changes with the network. It has 8 ARM cores, 30 GB of memory, a 512-core GPU, and a hardware H.265 decoder. It runs Ubuntu 20.04 with JetPack 5.1.6. Nothing it needed was installed, and sudo asks for a password, so everything went into the user's home folder:</p>
     </div>
     <div class="table-wrap">
       <table>
@@ -201,7 +201,7 @@
       <h2>How the desktop and the Jetson work together</h2>
       <p>No service runs on the Jetson and nothing is stored there. When a 2-minute recording is finished, the daemon on the desktop starts the reader over SSH and streams the file to it:</p>
     </div>
-    <pre><code>ssh 192.168.0.43 '~/ocr/read-recording 8' &lt; 23-29-43_000.mkv</code></pre>
+    <pre><code>ssh tegra-ubuntu.local '~/ocr/read-recording 8' &lt; 23-29-43_000.mkv</code></pre>
     <ol class="steps prose">
       <li><div><strong>The Jetson reads every frame</strong><span class="muted">8 per second, as recorded, on the GPU; the recording sits in a temporary file only while it's read.</span></div></li>
       <li><div><strong>It corrects each line with the game's text</strong><span class="muted">A copy of the localization database sits in <code>~/ocr/game-text.sqlite</code>; lines found there come back with their exact Czech.</span></div></li>
@@ -217,7 +217,7 @@
       <strong>Tesseract is gone</strong>
       <p>Once the Jetson had read its first sessions, the daemon's own reading path and its Tesseract dependency were removed (17 October). The daemon keeps only the parser for Tesseract's text format, which is how it reads the Jetson's results. Without the Jetson, recordings wait: no text is read on the desktop any more.</p>
     </div>
-    <p class="prose muted">Set with <code>CHAMPOLLION_OCR_REMOTE=192.168.0.43</code> and <code>CHAMPOLLION_OCR_FPS=8</code> in the daemon's service. On the Jetson, <code>~/ocr/read-recording</code> is <code>gpu-ocr/jetson/read-recording</code>; it loads the engines (about 17 seconds) and the game's text (about 1 second) for each recording.</p>
+    <p class="prose muted">Set with <code>CHAMPOLLION_OCR_REMOTE=tegra-ubuntu.local</code> and <code>CHAMPOLLION_OCR_FPS=8</code> in the daemon's service. On the Jetson, <code>~/ocr/read-recording</code> is <code>gpu-ocr/jetson/read-recording</code>; it loads the engines (about 17 seconds) and the game's text (about 1 second) for each recording.</p>
   </section>
 
   <nav class="next" aria-label="Next page">

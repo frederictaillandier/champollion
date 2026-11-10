@@ -155,7 +155,7 @@ CREATE TABLE lines (file TEXT, id TEXT, czech TEXT, czech_alt TEXT, english TEXT
     <div class="lessons">
       <div class="lesson"><h3>133 MB, not 360</h3><p>The index first kept every line twice, with tables of character positions: 360 MB. It now keeps each line's text and its three-letter index only, and rebuilds the rest for the 40 candidates it compares. Same results, same speed.</p></div>
       <div class="lesson"><h3>Why not let SQLite search?</h3><p>SQLite reads the file as needed, but its full-text search wants every three-letter sequence present, and one misread letter breaks it. Counting shared sequences in memory tolerates errors.</p></div>
-      <div class="lesson"><h3>After a game update</h3><p>Import the text again on the desktop, where the game is, and copy the file to the Jetson: <code>champollion-game-text import …</code>, then <code>scp … 192.168.0.43:ocr/game-text.sqlite</code>.</p></div>
+      <div class="lesson"><h3>After a game update</h3><p>Import the text again on the desktop, where the game is, and copy the file to the Jetson: <code>champollion-game-text import …</code>, then <code>scp … tegra-ubuntu.local:ocr/game-text.sqlite</code>.</p></div>
     </div>
     <div class="callout">
       <strong>Known limits</strong>

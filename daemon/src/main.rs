@@ -76,7 +76,7 @@ struct Args {
     ocr_min_confidence: f32,
 
     /// SSH destination of the Jetson reading the recordings on its GPU
-    /// (`~/ocr/read-recording` there), e.g. `192.168.0.43`; no text is read
+    /// (`~/ocr/read-recording` there), e.g. `tegra-ubuntu.local`; no text is read
     /// without it
     #[arg(long, env = "CHAMPOLLION_OCR_REMOTE")]
     ocr_remote: Option<String>,

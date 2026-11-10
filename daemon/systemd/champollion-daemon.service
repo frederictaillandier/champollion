@@ -18,7 +18,7 @@ Environment=CHAMPOLLION_CLAUDE=%h/.local/bin/claude
 #Environment=CHAMPOLLION_QP=20
 # The recordings are read on a Jetson's GPU, over SSH (gpu-ocr/jetson/);
 # without it no text is read.
-Environment=CHAMPOLLION_OCR_REMOTE=192.168.0.43
+Environment=CHAMPOLLION_OCR_REMOTE=tegra-ubuntu.local
 # Close the game at 50 cards due, until fewer than 10 are (0 never closes it):
 #Environment=CHAMPOLLION_LOCK_AT=50
 #Environment=CHAMPOLLION_UNLOCK_BELOW=10

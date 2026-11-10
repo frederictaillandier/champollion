@@ -51,7 +51,8 @@ make catching up after a session faster. It doesn't help during play.
 
 ## 3. The Jetson
 
-Found at **192.168.0.43**, hostname `tegra-ubuntu` (`tegra-ubuntu.local` over
+Found at **192.168.0.43** (now **192.168.1.103**: the address changes with the
+network, so it is reached by name), hostname `tegra-ubuntu` (`tegra-ubuntu.local` over
 mDNS). The network sweep missed its SSH port at first because it answers
 slowly.
 
@@ -429,7 +430,7 @@ Simpler than the plan of section 4: no job queue, no WireGuard on the
 Jetson, no service there.
 
 - When a recording is finished, the daemon runs
-  `ssh 192.168.0.43 '~/ocr/read-recording 8' < RECORDING` (setting
+  `ssh tegra-ubuntu.local '~/ocr/read-recording 8' < RECORDING` (setting
   `CHAMPOLLION_OCR_REMOTE`, `daemon/src/extract/remote.rs`). The Jetson writes
   the recording to a temporary file (so the demuxer can seek), reads it on
   the GPU, deletes it, and prints one
@@ -448,7 +449,7 @@ Jetson, no service there.
 - NVIDIA's decoder library prints "Opening in BLOCKING MODE" on the
   standard output; the daemon skips lines that aren't JSON.
 
-Settings in the user service: `CHAMPOLLION_OCR_REMOTE=192.168.0.43`,
+Settings in the user service: `CHAMPOLLION_OCR_REMOTE=tegra-ubuntu.local`,
 `CHAMPOLLION_OCR_FPS=8` (every recorded frame). On the Jetson,
 `~/ocr/read-recording` is `gpu-ocr/jetson/read-recording`.
 
@@ -475,7 +476,7 @@ exists. To refresh it after a game update:
 ```sh
 champollion-game-text import ~/.steam/steam/steamapps/common/KingdomComeDeliverance2/Localization \
     ~/.local/share/champollion/game-text/1771300.sqlite
-scp ~/.local/share/champollion/game-text/1771300.sqlite 192.168.0.43:ocr/game-text.sqlite
+scp ~/.local/share/champollion/game-text/1771300.sqlite tegra-ubuntu.local:ocr/game-text.sqlite
 ```
 
 It was first wired into the desktop daemon, then moved to the Jetson so the
