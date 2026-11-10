@@ -542,8 +542,6 @@ dependencies = [
  "chrono",
  "clap",
  "gstreamer",
- "gstreamer-app",
- "image",
  "ksni",
  "libc",
  "serde",

@@ -115,8 +115,9 @@ rate) and keeps words made of letters (2+
 characters, OCR confidence >= 70). Output in
 `~/.local/share/champollion/text/<game>/`:
 
-- `<date>/<video>+MMmSSs.png`: a frame showing new text, with a `.json` next
-  to it listing each word, its confidence, its box `[left, top, width,
+- `<date>/<video>+MMmSSs.json`: a frame showing new text (only its text: the
+  picture is in the recording; frames saved before 10 November also have a
+  `.png`, since deleted), listing each word, its confidence, its box `[left, top, width,
   height]` and whether it is `new` (never seen in any earlier frame), and
   all the `lines` read, noise included, for Claude to find whole sentences
   in.

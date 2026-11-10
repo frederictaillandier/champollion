@@ -443,7 +443,8 @@ Jetson, no service there.
   letters were read at) and groups lines into paragraphs by geometry, so a
   subtitle wrapped over two lines stays one sentence.
 - Only frames showing new text are saved as images; the desktop decodes
-  those alone by seeking into the recording (about 2 s each).
+  those alone by seeking into the recording (about 2 s each). Dropped on
+  10 November, see section 16.
 - If the Jetson can't be reached (ssh exits with 255), the recording isn't
   marked as read: the daemon logs it once and tries again every minute.
 - NVIDIA's decoder library prints "Opening in BLOCKING MODE" on the
@@ -518,3 +519,33 @@ and the official recognizer. What's left:
 `champollion-gpu-ocr` now defaults to detection at 960 wide with
 `det.engine`, so `read-recording` needs no engine options. Ollama is still
 installed on the Jetson (its models were removed); removing it needs sudo.
+
+## 16. Falling behind during play (10 November)
+
+A 25-minute session made 13 recordings of 2 minutes. Each took 73 to 213 s
+to read in the daemon, 135 s on average: slower than they were made, the
+last ones done 6 minutes after closing. Two causes:
+
+- **Screens full of text that don't change.** `_008`, 2 minutes of the
+  pause menu, took 214 s on the Jetson alone: 960 almost identical frames
+  of 55 words, every word recognized again in each (recognition 257 ms per
+  frame and worker, detection 139 ms). The menu is a skipped screen, so it
+  was all thrown away.
+- **The desktop's screenshots.** `_002` (tutorial, 23 new screens) took
+  78 s on the Jetson alone but 169 s in the daemon: decoding a picture of
+  each new screen stopped the daemon reading the Jetson's output, and the
+  Jetson waited. Nothing used the pictures (cards use the `.json`), so the
+  daemon no longer saves them, and the 447 saved PNGs (988 MB) were
+  deleted. A frame's sightings are now named after its `.json`.
+
+Reading 6 frames per second instead of 8: `_008` 214 → 167 s, `_002`
+78 → 66 s, and the lines lost at 6 were only other misreadings of the same
+text. Back at 8 once the screenshots were gone.
+
+The Jetson's times were also off on every file after a recording's first:
+`buffer.pts()` counts from the recording's start (`_001` starts at 2:00),
+so frame times are now taken in the segment's stream time, from 0 in each
+file. And lines with buttons (`Držením $block~; se bráníš`) never matched
+the game's text, which kept the placeholders: the importer now drops
+`$name;` and keeps the keyboard side of `{keyboard|gamepad}`.
+

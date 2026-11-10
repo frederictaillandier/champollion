@@ -14,10 +14,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use gstreamer as gst;
-use gstreamer::prelude::*;
-use gstreamer_app::AppSink;
-use image::RgbImage;
 use serde::Serialize;
 
 use ocr::{Screen, Word};
@@ -319,7 +315,7 @@ impl Context {
         }
     }
 
-    /// Saves the frame when confirmed words appeared, and records words
+    /// Saves the frame's text when confirmed words appeared, and records words
     /// never seen before in the vocabulary.
     fn handle_frame(
         &self,
@@ -352,20 +348,10 @@ impl Context {
             .unwrap_or_default();
         let secs = frame.seconds as u64;
         let name = format!("{stem}+{:02}m{:02}s", secs / 60, secs % 60);
-        let png = game.dir.join(day).join(format!("{name}.png"));
-        let json = png.with_extension("json");
-
-        // The frame was read elsewhere: it is decoded here, for reference;
-        // the cards only need its text.
-        let image = grab_frame(&video.path, frame.seconds)
-            .inspect_err(|e| tracing::warn!("could not save the image of {name}: {e}"))
-            .ok();
-        let saved = fs::create_dir_all(png.parent().unwrap())
+        // Only the text is kept: the picture is in the recording.
+        let json = game.dir.join(day).join(format!("{name}.json"));
+        let saved = fs::create_dir_all(json.parent().unwrap())
             .map_err(|e| e.to_string())
-            .and_then(|()| match image {
-                Some(image) => image.save(&png).map_err(|e| e.to_string()),
-                None => Ok(()),
-            })
             .and_then(|()| {
                 let text = FrameText {
                     video: &video.id,
@@ -377,19 +363,21 @@ impl Context {
                 fs::write(&json, body).map_err(|e| e.to_string())
             });
         if let Err(e) = saved {
-            tracing::error!("could not save {}: {e}", png.display());
+            tracing::error!("could not save {}: {e}", json.display());
             return;
         }
 
-        let png_id = png
+        // The frame's name, for its sightings (`.png` before the pictures
+        // were dropped; cards look for the `.json` either way).
+        let frame_id = json
             .strip_prefix(&game.dir)
-            .unwrap_or(&png)
+            .unwrap_or(&json)
             .to_string_lossy()
             .into_owned();
         for word in words.iter().filter(|w| w.new) {
             if game.vocabulary.insert(word.key()) {
                 let line = format!(
-                    "{}\t{png_id}\t{}\t{:.1}\t{}\n",
+                    "{}\t{frame_id}\t{}\t{:.1}\t{}\n",
                     word.key(),
                     video.id,
                     frame.seconds,
@@ -460,61 +448,6 @@ impl Tracker {
         appeared.dedup();
         (confirmed, appeared)
     }
-}
-
-/// The pixels of a decoded RGB frame.
-fn to_image(sample: &gst::Sample) -> Option<RgbImage> {
-    let caps = sample.caps()?;
-    let s = caps.structure(0)?;
-    let width = u32::try_from(s.get::<i32>("width").ok()?).ok()?;
-    let height = u32::try_from(s.get::<i32>("height").ok()?).ok()?;
-    let buffer = sample.buffer()?;
-    let map = buffer.map_readable().ok()?;
-    // Rows may be padded to a multiple of 4 bytes.
-    let stride = map.len() / height as usize;
-    let row = width as usize * 3;
-    let mut pixels = Vec::with_capacity(row * height as usize);
-    for y in 0..height as usize {
-        pixels.extend_from_slice(map.get(y * stride..y * stride + row)?);
-    }
-    RgbImage::from_raw(width, height, pixels)
-}
-
-/// The frame at `seconds` in the recording at `path`, decoded on its own.
-fn grab_frame(path: &Path, seconds: f64) -> Result<RgbImage, String> {
-    let pipeline = gst::parse::launch(
-        "filesrc name=src ! decodebin ! videoconvert ! video/x-raw,format=RGB \
-         ! appsink name=frame sync=false",
-    )
-    .map_err(|e| e.to_string())?
-    .downcast::<gst::Pipeline>()
-    .map_err(|_| "not a pipeline")?;
-    pipeline
-        .by_name("src")
-        .ok_or("no filesrc")?
-        .set_property("location", path);
-    let sink = pipeline
-        .by_name("frame")
-        .and_then(|e| e.downcast::<AppSink>().ok())
-        .ok_or("no appsink")?;
-    let timeout = gst::ClockTime::from_seconds(10);
-    let result = (|| {
-        pipeline
-            .set_state(gst::State::Paused)
-            .map_err(|e| e.to_string())?;
-        pipeline.state(timeout).0.map_err(|e| e.to_string())?;
-        pipeline
-            .seek_simple(
-                gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
-                gst::ClockTime::from_nseconds((seconds * 1e9) as u64),
-            )
-            .map_err(|e| e.to_string())?;
-        pipeline.state(timeout).0.map_err(|e| e.to_string())?;
-        let sample = sink.pull_preroll().map_err(|e| e.to_string())?;
-        to_image(&sample).ok_or_else(|| "unexpected frame format".to_owned())
-    })();
-    let _ = pipeline.set_state(gst::State::Null);
-    result
 }
 
 /// The file of `files` still being written by the recording whose files are

@@ -9,8 +9,6 @@ champollion-api = { version = "0.1.0", path = "../api" }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 gstreamer = "0.25.4"
-gstreamer-app = "0.25.2"
-image = { version = "0.25.10", default-features = false, features = ["png"] }
 ksni = "0.3.6"
 libc = "0.2.186"
 serde = { version = "1.0.229", features = ["derive"] }
