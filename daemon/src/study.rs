@@ -1,5 +1,5 @@
-//! Keeps the game closed while too many cards are due: playing waits for
-//! studying.
+//! Keeps the game closed while too many cards are to study, due for review
+//! or new: playing waits for studying.
 
 use std::collections::HashMap;
 use std::fs;
@@ -15,8 +15,9 @@ use champollion_api::DueCount;
 /// show up this late at most.
 const POLL_INTERVAL: Duration = Duration::from_secs(30);
 
-/// Asks the backend, in a thread, how many cards are due.
+/// Asks the backend, in a thread, how many cards are to study.
 pub struct DueCards {
+    /// Cards due for review plus new cards, as new cards are to study too:
     /// `None` until the backend answers, and while it does not.
     pub due: Arc<Mutex<Option<u64>>>,
     handle: thread::JoinHandle<()>,
@@ -54,15 +55,15 @@ fn poll(url: &str, due: &Mutex<Option<u64>>, stop: &AtomicBool) {
         match answer {
             Ok(count) => {
                 if failing {
-                    tracing::info!("the backend tells how many cards are due again");
+                    tracing::info!("the backend tells how many cards are to study again");
                     failing = false;
                 }
-                *due.lock().unwrap() = Some(count.due);
+                *due.lock().unwrap() = Some(count.due + count.new);
             }
             Err(e) => {
                 if !failing {
                     tracing::warn!(
-                        "could not ask how many cards are due, the game is not locked: {e}"
+                        "could not ask how many cards are to study, the game is not locked: {e}"
                     );
                     failing = true;
                 }
@@ -77,7 +78,7 @@ fn poll(url: &str, due: &Mutex<Option<u64>>, stop: &AtomicBool) {
     }
 }
 
-/// Locks the game once `lock_at` cards are due, until fewer than
+/// Locks the game once `lock_at` cards are to study, until fewer than
 /// `unlock_below` are: unlocking right under `lock_at` would lock it again a
 /// few minutes into the game.
 pub struct Lock {
@@ -115,7 +116,7 @@ impl Lock {
             return false;
         };
         if !self.locked && due >= self.lock_at {
-            tracing::info!("{due} cards are due, locking the game");
+            tracing::info!("{due} cards to study, locking the game");
             self.locked = true;
             let result = self
                 .file
@@ -126,7 +127,7 @@ impl Lock {
                 tracing::warn!("could not write {}: {e}", self.file.display());
             }
         } else if self.locked && due < self.unlock_below {
-            tracing::info!("only {due} cards are due, unlocking the game");
+            tracing::info!("only {due} cards to study, unlocking the game");
             self.locked = false;
             if let Err(e) = fs::remove_file(&self.file) {
                 tracing::warn!("could not remove {}: {e}", self.file.display());

@@ -163,12 +163,12 @@ Files next to `vocabulary.tsv`:
 ### Time to study
 
 With `--backend-url`, the daemon asks the backend every 30 seconds how many
-cards are due for review (new ones are not due). Once 50 are (`--lock-at`,
+cards are to study: due for review, or new. Once 50 are (`--lock-at`,
 `CHAMPOLLION_LOCK_AT`; 0 turns this off), it closes the game: a "Time to
 study" notification shows, the game and everything Steam's `reaper`
 started for it get SIGTERM, then SIGKILL 10 seconds later, without saving.
 The game stays locked, closed again each time it is started, until fewer
-than 10 cards are due (`--unlock-below`, `CHAMPOLLION_UNLOCK_BELOW`); the
+than 10 cards are to study (`--unlock-below`, `CHAMPOLLION_UNLOCK_BELOW`); the
 tray shows how many are. The lock survives a restart of the daemon
 (`~/.local/state/champollion/locked`). While the backend cannot be reached,
 the game can be played.

@@ -124,13 +124,13 @@
     <div class="section-head">
       <div class="eyebrow">Time to study</div>
       <h2>The study lock</h2>
-      <p>Every 30 seconds the daemon asks the backend how many cards are due. Two thresholds, far apart, decide what happens. If the game unlocked just under 50, it would lock again a few minutes into playing.</p>
+      <p>Every 30 seconds the daemon asks the backend how many cards are to study: due for review, or new. Two thresholds, far apart, decide what happens. If the game unlocked just under 50, it would lock again a few minutes into playing.</p>
     </div>
     <figure class="figure">
       <div class="diagram narrow">
         <svg viewBox="0 0 860 280" role="img" aria-labelledby="lock-t lock-d">
           <title id="lock-t">Study lock states</title>
-          <desc id="lock-d">Unlocked becomes locked when 50 or more cards are due; locked becomes unlocked when fewer than 10 are due.</desc>
+          <desc id="lock-d">Unlocked becomes locked when 50 or more cards are to study, due or new; locked becomes unlocked when fewer than 10 are.</desc>
           <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="dg-arrowhead"/></marker></defs>
           <rect x="40" y="70" width="260" height="120" rx="60" class="dg-box"/>
           <text x="170" y="118" class="dg-title" text-anchor="middle">Unlocked</text>
@@ -141,10 +141,10 @@
           <text x="690" y="140" class="dg-small" text-anchor="middle">closed each time it starts;</text>
           <text x="690" y="157" class="dg-small" text-anchor="middle">a file remembers it</text>
           <path d="M300,105 C390,60 470,60 556,105" class="dg-arrow" marker-end="url(#ah2)"/>
-          <text x="430" y="30" class="dg-title" text-anchor="middle">50 or more cards due</text>
+          <text x="430" y="30" class="dg-title" text-anchor="middle">50 or more cards due or new</text>
           <text x="430" y="49" class="dg-small" text-anchor="middle">notification, SIGTERM, SIGKILL 10 s later</text>
           <path d="M556,158 C470,205 390,205 304,158" class="dg-arrow" marker-end="url(#ah2)"/>
-          <text x="430" y="222" class="dg-title" text-anchor="middle">fewer than 10 due</text>
+          <text x="430" y="222" class="dg-title" text-anchor="middle">fewer than 10 due or new</text>
           <text x="430" y="242" class="dg-small" text-anchor="middle">after reviewing on the phone</text>
           <text x="430" y="272" class="dg-mono" text-anchor="middle">backend unreachable → the game may run (a network problem never blocks it)</text>
         </svg>

@@ -98,12 +98,12 @@ struct Args {
     #[arg(long, env = "CHAMPOLLION_NO_CARDS")]
     no_cards: bool,
 
-    /// Cards due at which the game is closed and kept closed; 0 never
-    /// closes it. Needs `--backend-url`
+    /// Cards to study (due for review or new) at which the game is closed
+    /// and kept closed; 0 never closes it. Needs `--backend-url`
     #[arg(long, default_value_t = 50, env = "CHAMPOLLION_LOCK_AT")]
     lock_at: u64,
 
-    /// Cards due under which the game can be played again
+    /// Cards to study under which the game can be played again
     #[arg(long, default_value_t = 10, env = "CHAMPOLLION_UNLOCK_BELOW")]
     unlock_below: u64,
 
@@ -332,9 +332,9 @@ fn main() {
                     }
                 }
                 _ => {
-                    tracing::info!("{due} cards are due, closing {}", game.name);
+                    tracing::info!("{due} cards to study, closing {}", game.name);
                     let body = format!(
-                        "{due} cards are due. {} stays closed until fewer than {} are.",
+                        "{due} cards to study (due or new). {} stays closed until fewer than {} are left.",
                         game.name,
                         lock.unlock_below()
                     );

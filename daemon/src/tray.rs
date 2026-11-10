@@ -22,7 +22,7 @@ pub enum State {
     Failed(String),
     /// Reading text from recordings, with a progress description.
     Reading(String),
-    /// Too many cards are due: the game is closed until fewer than
+    /// Too many cards to study: the game is closed until fewer than
     /// `unlock_below` are.
     Locked {
         due: u64,
@@ -51,7 +51,7 @@ impl Tray {
             State::Reading(progress) => progress.clone(),
             State::Locked { due, unlock_below } => {
                 format!(
-                    "Time to study: {due} cards due, {} unlocks under {unlock_below}",
+                    "Time to study: {due} cards due or new, {} unlocks under {unlock_below}",
                     self.game
                 )
             }
