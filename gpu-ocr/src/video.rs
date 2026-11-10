@@ -83,7 +83,20 @@ fn to_rgb(sample: &gst::Sample) -> Option<(f64, RgbImage)> {
     let width = u32::try_from(s.get::<i32>("width").ok()?).ok()?;
     let height = u32::try_from(s.get::<i32>("height").ok()?).ok()?;
     let buffer = sample.buffer()?;
-    let seconds = buffer.pts().map(|t| t.seconds_f64()).unwrap_or(0.0);
+    // In the stream's time, from the start of this file: the timestamps of
+    // a recording's later files go on from the earlier ones' (its second
+    // file starts at 2 minutes), and its segment takes them back to 0.
+    let pts = buffer.pts();
+    let seconds = pts
+        .and_then(|t| {
+            sample
+                .segment()?
+                .downcast_ref::<gst::ClockTime>()?
+                .to_stream_time(t)
+        })
+        .or(pts)
+        .map(|t| t.seconds_f64())
+        .unwrap_or(0.0);
     let map = buffer.map_readable().ok()?;
     // Rows may be padded.
     let stride = map.len() / height as usize;
