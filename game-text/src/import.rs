@@ -135,7 +135,56 @@ fn clean(cell: &str) -> String {
             _ => {}
         }
     }
-    plain.split_whitespace().collect::<Vec<_>>().join(" ")
+    without_buttons(&plain)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The text without its buttons, shown as icons rather than words:
+/// `$block;` (or `$block~;`, `$block^;`, held or pressed) is removed, and
+/// of `{$attack_mouse;|$attack;}`, alternatives for the keyboard and the
+/// gamepad, only the first is kept, then without its buttons.
+fn without_buttons(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find(['{', '$']) {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        if rest.starts_with('{') {
+            match rest.find('}') {
+                // A format slot like `{0}` stays.
+                Some(end) if rest[..end].contains('|') => {
+                    let first = rest[1..end].split('|').next().unwrap_or("");
+                    out.push(' ');
+                    out.push_str(&without_buttons(first));
+                    out.push(' ');
+                    rest = &rest[end + 1..];
+                }
+                _ => {
+                    out.push('{');
+                    rest = &rest[1..];
+                }
+            }
+        } else {
+            let name = rest[1..]
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .map_or(rest.len(), |n| n + 1);
+            let after = rest[name..].trim_start_matches(['~', '^']);
+            match after.strip_prefix(';') {
+                Some(after) if name > 1 => {
+                    out.push(' ');
+                    rest = after;
+                }
+                _ => {
+                    out.push('$');
+                    rest = &rest[1..];
+                }
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn unescape(text: &str) -> String {
@@ -191,5 +240,22 @@ mod tests {
         assert_eq!(clean(&rows[0][2]), "Pomoz lazebnici Anně.");
         assert_eq!(rows[1], vec!["b", "", "A &amp; B"]);
         assert_eq!(clean(&rows[1][2]), "A & B");
+    }
+
+    #[test]
+    fn removes_buttons_shown_as_icons() {
+        assert_eq!(
+            clean(
+                "Boj! Stisknutím {$attack_primary_mouse;|$attack_primary;} zaútočíš. \
+                 Držením $block~; se bráníš."
+            ),
+            "Boj! Stisknutím zaútočíš. Držením se bráníš."
+        );
+        assert_eq!(
+            clean("$horse_dismount; sesedneš {$moveback;|drž couvání} + $jump;"),
+            "sesedneš +"
+        );
+        assert_eq!(clean("Podrž $use^; a pak"), "Podrž a pak");
+        assert_eq!(clean("Úroveň {0} za $5"), "Úroveň {0} za $5");
     }
 }
