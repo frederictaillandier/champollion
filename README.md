@@ -9,17 +9,35 @@ review the cards of the backend like in Anki: the word and the game sentence
 it was read in; tapped, its translation, its meaning in that sentence and the
 sentence's translation, with the Failed / Succeed buttons and ⚑ to flag a
 wrong card: it leaves the reviews, and is kept in the backend (`flagged_at`)
-to be fixed.
+to be fixed. ↩ under the next card takes back the last rating or flag (a
+misclick) while it is not sent yet: that card shows again, on its back.
+
+Each time a rating or a flag shows the next card, its word is spoken (the
+backend's ElevenLabs recording, downloaded with the session, so it plays
+offline too; each new session downloads its words again, so a word spoken
+again on the backend is heard from the next one). The first card of a session, shown by a sync rather than a
+tap, stays silent; 🔊 under the word plays it again, muted or not. 🔊
+next to ⚑ mutes the words, 🔇 speaks them again.
+
+A card is coloured by its part of speech (nouns red, verbs green,
+adjectives yellow, the rest grey), darker at each level. Above level 1,
+its front shows the word alone, without the sentence; its back, the
+translation and the form of its level (`schovám se`, "I'll hide"), spoken
+as it flips unless muted; 🗣 says it again.
 
 It comes in two versions sharing one review session: one for the home screen,
 and one for the Galaxy Z Flip's cover screen (Flex Window), which Samsung
 requires to be a keyguard widget of at least 352×339 dp with a
 `com.samsung.android.appwidget.provider` declaring `display="sub_screen"`.
 
-Reviewing works offline. The phone downloads a session of cards due (up to
-50: those already reviewed first, then new ones, each in random order) and
-keeps them with the ratings and flags not sent yet (`Session`, in a
-DataStore); "N left" counts the session's cards, those failed included.
+Reviewing works offline. The phone downloads a session of 50 cards: 45
+cards due for review, then 5 new ones (never reviewed), each in random
+order; when one kind runs short, the other fills the session. It keeps them
+with the ratings and flags not sent yet (`Session`, in a DataStore). "N
+left" counts the session's cards, those failed included; "N due" the cards
+due for review on the backend at the last sync, but those succeeded or
+flagged since; "N new" the new cards, to learn rather than due, but those
+rated or flagged since.
 Once the session is done, WorkManager sends its ratings and flags and
 downloads the next one, as soon as the backend is reachable; it also syncs
 every 30 minutes. A failed card goes back in the session at a random place
@@ -53,11 +71,12 @@ WireGuard tunnel on.
   first time, the desktop asks which screen to share: pick the game's screen.
   The choice is remembered (token in `~/.local/state/champollion/`), so later
   launches start recording without asking. Delete that file to choose again.
-- Frames stay on the GPU and are encoded to H.265 by NVENC (falls back to
-  x265 on the CPU without an NVIDIA GPU). Default: 15 fps, constant quality
-  QP 20, which keeps small text sharp.
-- Recordings are split into 10-minute Matroska files, which stay readable if
-  the daemon is killed:
+- Frames stay on the GPU, scaled down to 1080 pixels high (keeping the
+  screen's proportions) and encoded to H.265 by NVENC (falls back to x265
+  on the CPU without an NVIDIA GPU). Default: 8 fps, constant quality QP 20,
+  which keeps small text sharp.
+- Recordings are split into 2-minute Matroska files, which stay readable if
+  the daemon is killed, and whose text is read once they are finished:
   `~/.local/share/champollion/recordings/1771300-kingdom-come-deliverance-ii/<date>/<time>_NNN.mkv`
 
 Requires GStreamer 1.24 with the `pipewire`, `gl` and `nvcodec` plugins.
@@ -75,26 +94,30 @@ journalctl --user -u champollion-daemon -f   # logs
 
 Options (`champollion-daemon --help`) can also be set as environment
 variables in the unit: `CHAMPOLLION_APP_ID` (another Steam game),
-`CHAMPOLLION_OUTPUT_DIR`, `CHAMPOLLION_FRAMERATE`, `CHAMPOLLION_QP`
-(lower is sharper and bigger), `CHAMPOLLION_SEGMENT_MINUTES`.
+`CHAMPOLLION_OUTPUT_DIR`, `CHAMPOLLION_FRAMERATE`, `CHAMPOLLION_MAX_HEIGHT`
+(0 keeps the screen's size), `CHAMPOLLION_QP` (lower is sharper and
+bigger), `CHAMPOLLION_SEGMENT_MINUTES`.
 
 ### Reading the text
 
-While the game is not running, the daemon reads the finished recordings
-with the [Tesseract](https://github.com/tesseract-ocr/tesseract) OCR library (through the `tesseract` crate), oldest
-first, at low priority. It pauses as soon as the game starts again.
+The finished recordings are read, oldest first, by a Jetson board on the
+home network (`CHAMPOLLION_OCR_REMOTE`, e.g. `tegra-ubuntu.local`), so the game
+keeps the whole PC. The daemon streams each file to it over SSH; the Jetson
+reads every frame on its GPU (`gpu-ocr/`), corrects each line with the
+game's own text (`game-text/`), and sends back each frame's text in
+Tesseract's TSV format. A 2-minute recording takes about a minute. If the
+Jetson can't be reached, recordings wait, and the daemon tries again every
+minute. Without `CHAMPOLLION_OCR_REMOTE`, no text is read. Setting up the
+Jetson: `docs/jetson-gpu-ocr.md`.
 
-```sh
-sudo apt install libtesseract-dev libleptonica-dev tesseract-ocr-ces   # Czech; see --ocr-lang
-```
-
-It samples 1 frame per second, reads 2 frames at a time (`--ocr-workers`;
-each worker loads its own copy of the language model) and keeps words made of letters (2+
+It reads 8 frames per second (`--ocr-fps`, all of them at the recording's
+rate) and keeps words made of letters (2+
 characters, OCR confidence >= 70). Output in
 `~/.local/share/champollion/text/<game>/`:
 
-- `<date>/<video>+MMmSSs.png`: a frame showing new text, with a `.json` next
-  to it listing each word, its confidence, its box `[left, top, width,
+- `<date>/<video>+MMmSSs.json`: a frame showing new text (only its text: the
+  picture is in the recording; frames saved before 10 November also have a
+  `.png`, since deleted), listing each word, its confidence, its box `[left, top, width,
   height]` and whether it is `new` (never seen in any earlier frame), and
   all the `lines` read, noise included, for Claude to find whole sentences
   in.
@@ -110,9 +133,9 @@ characters, OCR confidence >= 70). Output in
 - `vocabulary.tsv`: every word seen, with the frame where it first appeared.
 - `processed.txt`: recordings already read (delete a line to read it again).
 
-Options: `--no-ocr`, `--ocr-lang`, `--ocr-fps`, `--ocr-workers`,
-`--ocr-min-confidence`, `--text-dir` (or the matching `CHAMPOLLION_*`
-environment variables).
+Options: `--no-ocr`, `--ocr-remote`, `--ocr-fps`, `--ocr-min-confidence`,
+`--text-dir`, `--lang` (the game's language for the cards, `ces`) (or the
+matching `CHAMPOLLION_*` environment variables).
 
 ### Making flashcards
 
@@ -138,6 +161,22 @@ Files next to `vocabulary.tsv`:
   made into cards, and of `cards.jsonl` sent. Delete one to redo that step;
   the backend ignores what it already has.
 
+### Time to study
+
+With `--backend-url`, the daemon asks the backend every 30 seconds how many
+cards are to study: due for review, or new. Once 50 are (`--lock-at`,
+`CHAMPOLLION_LOCK_AT`; 0 turns this off), it closes the game: a "Time to
+study" notification shows, the game and everything Steam's `reaper`
+started for it get SIGTERM, then SIGKILL 10 seconds later, without saving.
+The game stays locked, closed again each time it is started, until fewer
+than 10 cards are to study (`--unlock-below`, `CHAMPOLLION_UNLOCK_BELOW`); the
+tray shows how many are. The lock survives a restart of the daemon
+(`~/.local/state/champollion/locked`). While the backend cannot be reached,
+the game can be played.
+
+A word counts a few minutes after it was on screen: its 2-minute file is
+finished, then read, then made into a card within a minute or so.
+
 Options: `--claude` (path of the `claude` executable), `--cards-model`
 (default `sonnet`), `--no-cards` (only send the cards already made).
 
@@ -155,7 +194,12 @@ gst-launch-1.0 filesrc location=22-24-25_000.mkv ! decodebin ! videoconvert \
 and schedules their review like Anki (SM-2), but with two ratings and gaps
 starting at 10 minutes: a success multiplies the card's gap by its ease × 1.3
 (10 min, 35 min, 2 h, 8 h, 1.3 days…), a failure brings it back to 10 minutes
-and lowers the ease. There is one card per dictionary
+and lowers the ease. A noun or verb whose gap would go over 7 days moves
+up to level 2, where its back teaches a form of the word (a verb's 1st
+person singular, a noun's accusative singular) and the review starts again
+from 10 minutes and the first ease; cards never move down. There is room
+for more levels: a card moves up to a level once it has a form for it.
+There is one card per dictionary
 form; each word read in a game is a sighting of its card (form, sentence,
 translations), so `král` and `králem` make one card with two sightings. It runs on taillandier.io and only
 listens on its WireGuard address, `10.0.0.1:8090`: the only devices that can
@@ -165,8 +209,10 @@ reach it are WireGuard peers (this PC at `10.0.0.50`, the phone at
 | Request | Body / answer |
 |---|---|
 | `GET /health` | `ok` |
-| `POST /cards` | `{"cards": [NewCard]}` → `{"added_cards": n, "added_sightings": n, "updated_sightings": n}`; known cards are kept, known sightings (same card, form and frame) take the sentence, its translation and the definition sent |
-| `GET /cards/due?limit=100` | cards due now with their sightings, those already reviewed first, then new ones, each in random order |
+| `POST /cards` | `{"cards": [NewCard]}` → `{"added_cards": n, "added_sightings": n, "updated_sightings": n, "changed_forms": n}`; known cards are kept but take the forms sent, known sightings (same card, form and frame) take the sentence, its translation and the definition sent |
+| `GET /cards/due?limit=50` | a session: cards due for review with their sightings, then one new card (`"new": true`) in ten, each in random order; either kind fills what the other lacks |
+| `GET /cards/due/count` | `{"due": n, "new": n}`: how many cards reviewed before are due now, and how many are new (never reviewed, so not due) |
+| `GET /cards/{id}/audio?level=1` | the MP3 of the card's dictionary form, or of its form of a level above 1; 404 while it is not made |
 | `POST /reviews` | `{"reviews": [Review]}` → `{"applied": n}`; a review id sent twice counts once |
 | `POST /flags` | `{"flags": [Flag]}` → `{"applied": n}`; flagged cards are no longer due |
 
@@ -183,6 +229,26 @@ The code is in layers, each calling only the next:
   query. They take a connection, so that a service can run several in one
   transaction.
 - `schedule.rs`: when to show a card again, without database nor HTTP.
+- `elevenlabs.rs`: the ElevenLabs text-to-speech API.
+
+### Pronunciations
+
+With an ElevenLabs API key (`ELEVENLABS_API_KEY`), a background task speaks
+the dictionary form and the forms of every card that has no pronunciation
+of them yet, or one of an older text, the soonest due first, and stores the MP3 in the `pronunciations` table. It runs
+when cards are added, and every 5 minutes after a failure (network, key,
+quota). A word ElevenLabs refuses is skipped until the backend restarts.
+
+The default model is `eleven_turbo_v2_5` (`CHAMPOLLION_ELEVENLABS_MODEL`),
+which is told the card's language: otherwise a short word can be read as
+English (`most`); every word is also sent with a period (`do.`, `jen.`), as
+alone a short word can still be read as English, and a longer one can run
+past its end (`jena` for `jen`, `zašukat si si`). The default voice is a premade one, `JBFqnCBsd6RMkjVDRZzb`
+(`CHAMPOLLION_ELEVENLABS_VOICE`); a native voice from ElevenLabs' voice
+library sounds better. Words already spoken keep their voice; to make them
+again, delete their rows (`DELETE FROM pronunciations WHERE voice = '...'`)
+and restart the backend. A single bad take can also be replaced by another
+MP3 (`UPDATE pronunciations SET audio = ... WHERE card_id = ...`).
 
 ### Deploy
 
@@ -200,6 +266,13 @@ ssh -t taillandier.io 'cd champollion-deploy && sudo ./setup-server.sh ./champol
 connects through the local socket, without password), installs the systemd
 unit and opens port 8090 on `wg0` only. Arguments `NAME=PUBLIC_KEY@IP` also
 add WireGuard peers. Migrations in `backend/migrations/` run at startup.
+
+The ElevenLabs API key stays out of the repository, in a file the unit
+reads:
+
+```sh
+ssh -t taillandier.io 'sudo install -d /etc/champollion && sudo install -m 600 /dev/null /etc/champollion/backend.env && echo ELEVENLABS_API_KEY=... | sudo tee /etc/champollion/backend.env >/dev/null'
+```
 
 ```sh
 ssh taillandier.io journalctl -u champollion-backend -f   # needs sudo

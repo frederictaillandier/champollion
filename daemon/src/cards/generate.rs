@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use champollion_api::{NewCard, Sighting};
+use champollion_api::{CardForm, NewCard, Sighting};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use unicode_normalization::UnicodeNormalization;
@@ -29,7 +29,7 @@ const PROMPT: &str = "\
 You make Czech flashcards for an English speaker. The words were read by OCR \
 from the Czech subtitles and menus of the video game {game}, whose characters \
 may speak colloquial or archaic Czech (e.g. \"potřebujem\" for \"potřebujeme\", \
-\"deš\" for \"dáš\").
+\"deš\" for \"jdeš\", \"du\" for \"jdu\").
 
 You get the screens the words were read on, as OCR text line by line: \
 the subtitles, menus and tutorials, mixed with noise (game scenery and \
@@ -43,16 +43,33 @@ nádvoří\" → \"Pomoz na nádvoří\"), and drop button icons (\"držením ((
 Vystřelíš\" → \"držením. Vystřelíš\"). Only fix what OCR got wrong: never \
 reword it. Keep the word itself in it.
 - lemma: its standard dictionary form (\"králem\" → \"král\", \"namažem\" → \
-\"namazat se\", \"deš\" → \"dát\").
+\"namazat se\", \"deš\" → \"jít\"). Trace colloquial, contracted and irregular \
+forms back to the verb they really belong to, and check that the lemma's own \
+meaning fits the sentence: \"pojď\" (come!) is the imperative of \"jít\", not \
+of \"pojít\", which means to die (of an animal).
 - pos, and gender for nouns (m, f or n; empty otherwise).
-- translation: the English translation of the lemma IN THIS SENTENCE, a few words.
+- translation: the lemma's usual English meaning, a few words, as a \
+dictionary gives it first: the card is shown with every sentence the word \
+is read in, not only this one. Add another common sense after a semicolon \
+if there is one (\"utratit\" → \"to spend (money); to put down (an \
+animal)\"). Never replace the usual meaning by a figurative or game-specific \
+one: \"zmítat\" is \"to toss, to shake\" even in \"zmítáno válkou\" (torn by \
+war); that sense goes in the definition.
 - definition: one short English sentence explaining what the lemma means as \
-used in this sentence, including slang, puns or idioms (e.g. \"namazat se\" \
-is slang for getting drunk). The card shows the lemma, so never describe the \
+used in this sentence, including slang, puns, idioms and figurative senses \
+(e.g. \"namazat se\" is slang for getting drunk). The card shows the lemma, so never describe the \
 form read: no case, number, person, tense or mood (not \"vocative of otec\" \
 nor \"imperative plural\", but \"one's father, or a priest; here someone \
 calls out to him\").
 - sentence_translation: a natural English translation of that sentence.
+- form: the form learnt once the lemma is known, in standard Czech: for a \
+verb, the 1st person singular of its present tense, with its reflexive \
+pronoun (\"schovat se\" → \"schovám se\", \"jít\" → \"jdu\"); for a noun, \
+its accusative singular (\"rána\" → \"ránu\", \"štít\" → \"štít\"), or plural \
+for a noun only used in the plural. Empty for the other parts of speech.
+- form_translation: the form in English: for a verb, with \"I\", in the \
+future for a perfective verb (\"schovám se\" → \"I'll hide\", \"jdu\" → \
+\"I go\"); for a noun, its translation. Empty without a form.
 - keep: false only for words not worth learning as Czech vocabulary: other \
 languages (English UI text), OCR garbage, names of people and places, \
 numbers. Colloquial and archaic Czech forms are real words: keep them.
@@ -162,6 +179,26 @@ struct Answer {
     #[serde(default)]
     sentence: String,
     sentence_translation: String,
+    /// The form learnt at level 2, empty for most parts of speech.
+    #[serde(default)]
+    form: String,
+    #[serde(default)]
+    form_translation: String,
+}
+
+impl Answer {
+    /// The forms of the card above level 1: its level 2 form, if it has one.
+    fn forms(&self) -> Vec<CardForm> {
+        let form = self.form.trim();
+        if form.is_empty() || !matches!(self.pos.as_str(), "noun" | "verb") {
+            return Vec::new();
+        }
+        vec![CardForm {
+            level: 2,
+            form: form.to_owned(),
+            translation: self.form_translation.trim().to_owned(),
+        }]
+    }
 }
 
 #[derive(Deserialize)]
@@ -210,6 +247,7 @@ impl Claude {
                     continue;
                 }
                 let card = NewCard {
+                    forms: answer.forms(),
                     lang: lang.to_owned(),
                     lemma: answer.lemma,
                     pos: answer.pos,
@@ -366,10 +404,12 @@ fn schema() -> serde_json::Value {
                 "definition": string,
                 "sentence": string,
                 "sentence_translation": string,
+                "form": string,
+                "form_translation": string,
             },
             "required": [
                 "id", "keep", "lemma", "pos", "gender", "translation", "definition",
-                "sentence", "sentence_translation"
+                "sentence", "sentence_translation", "form", "form_translation"
             ],
         }}},
         "required": ["cards"],

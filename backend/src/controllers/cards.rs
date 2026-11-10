@@ -1,6 +1,8 @@
 use axum::Json;
-use axum::extract::{Query, State};
-use champollion_api::{Card, CardBatch, CardBatchResult};
+use axum::extract::{Path, Query, State};
+use axum::http::{StatusCode, header};
+use axum::response::{IntoResponse, Response};
+use champollion_api::{Card, CardBatch, CardBatchResult, DueCount};
 use serde::Deserialize;
 
 use super::AppState;
@@ -11,7 +13,11 @@ pub async fn add(
     State(state): State<AppState>,
     Json(batch): Json<CardBatch>,
 ) -> Result<Json<CardBatchResult>, Error> {
-    Ok(Json(state.cards.add(&batch).await?))
+    let result = state.cards.add(&batch).await?;
+    if result.added_cards > 0 || result.changed_forms > 0 {
+        state.pronunciations.wake();
+    }
+    Ok(Json(result))
 }
 
 #[derive(Deserialize)]
@@ -30,4 +36,32 @@ pub async fn due(
     Query(q): Query<DueQuery>,
 ) -> Result<Json<Vec<Card>>, Error> {
     Ok(Json(state.cards.due(q.limit).await?))
+}
+
+/// `GET /cards/due/count`
+pub async fn due_count(State(state): State<AppState>) -> Result<Json<DueCount>, Error> {
+    Ok(Json(state.cards.due_count().await?))
+}
+
+#[derive(Deserialize)]
+pub struct AudioQuery {
+    #[serde(default = "first_level")]
+    level: i16,
+}
+
+fn first_level() -> i16 {
+    1
+}
+
+/// `GET /cards/{id}/audio?level=1`: the MP3 of the card's dictionary form,
+/// or of its form of a level above 1; 404 while it is not made.
+pub async fn audio(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Query(q): Query<AudioQuery>,
+) -> Result<Response, Error> {
+    Ok(match state.pronunciations.audio(id, q.level).await? {
+        Some(mp3) => ([(header::CONTENT_TYPE, "audio/mpeg")], mp3).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    })
 }

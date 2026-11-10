@@ -1,5 +1,6 @@
 package com.maujart.champollion
 
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -21,7 +22,21 @@ data class Card(
     val translation: String,
     val due: String,
     val reps: Int,
+    /** 1 for a new card; a card learnt well enough moves up to its next form's. */
+    val level: Int = 1,
+    /** The form learnt at the card's level, none at level 1. */
+    val form: CardForm? = null,
     val sightings: List<CardSighting>,
+    /** Never reviewed: to learn, not due. */
+    @SerialName("new") val isNew: Boolean = false,
+)
+
+/** A form of the card's word, e.g. `schovám se` ("I'll hide"). */
+@Serializable
+data class CardForm(
+    val level: Int,
+    val form: String,
+    val translation: String,
 )
 
 @Serializable
@@ -50,6 +65,10 @@ data class Review(
     @SerialName("reviewed_at") val reviewedAt: String,
 )
 
+/** Cards due for review on the backend, and new cards to learn. */
+@Serializable
+data class DueCount(val due: Int, val new: Int = 0)
+
 @Serializable
 private data class ReviewBatch(val reviews: List<Review>)
 
@@ -70,7 +89,22 @@ object Backend {
     private const val TIMEOUT_MS = 15_000
 
     suspend fun dueCards(limit: Int): List<Card> =
-        json.decodeFromString(request("GET", "/cards/due?limit=$limit", null))
+        json.decodeFromString(request("GET", "/cards/due?limit=$limit", null).decodeToString())
+
+    /** How many cards are due for review now on the backend, and how many are new. */
+    suspend fun dueCount(): DueCount =
+        json.decodeFromString(request("GET", "/cards/due/count", null).decodeToString())
+
+    /**
+     * The MP3 of the card's word (level 1) or of its form of a level above,
+     * or null while the backend has none.
+     */
+    suspend fun audio(cardId: Long, level: Int): ByteArray? =
+        try {
+            request("GET", "/cards/$cardId/audio?level=$level", null)
+        } catch (e: FileNotFoundException) {
+            null
+        }
 
     suspend fun sendReviews(reviews: List<Review>) {
         request("POST", "/reviews", json.encodeToString(ReviewBatch(reviews)))
@@ -80,7 +114,8 @@ object Backend {
         request("POST", "/flags", json.encodeToString(FlagBatch(flags)))
     }
 
-    private suspend fun request(method: String, path: String, body: String?): String =
+    /** Throws [FileNotFoundException] on a 404. */
+    private suspend fun request(method: String, path: String, body: String?): ByteArray =
         withContext(Dispatchers.IO) {
             val connection = URL(BuildConfig.BACKEND_URL + path).openConnection() as HttpURLConnection
             try {
@@ -92,10 +127,12 @@ object Backend {
                     connection.setRequestProperty("Content-Type", "application/json")
                     connection.outputStream.use { it.write(body.toByteArray()) }
                 }
-                if (connection.responseCode !in 200..299) {
-                    throw IOException("$method $path: HTTP ${connection.responseCode}")
+                when (connection.responseCode) {
+                    in 200..299 -> {}
+                    404 -> throw FileNotFoundException("$method $path: HTTP 404")
+                    else -> throw IOException("$method $path: HTTP ${connection.responseCode}")
                 }
-                connection.inputStream.use { it.readBytes().decodeToString() }
+                connection.inputStream.use { it.readBytes() }
             } finally {
                 connection.disconnect()
             }

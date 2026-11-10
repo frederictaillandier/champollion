@@ -9,19 +9,18 @@ champollion-api = { version = "0.1.0", path = "../api" }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 gstreamer = "0.25.4"
-gstreamer-app = "0.25.2"
-image = { version = "0.25.10", default-features = false, features = ["png"] }
 ksni = "0.3.6"
+libc = "0.2.186"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 signal-hook = "0.4.4"
-tesseract = "0.15.2"
 tokio = { version = "1.53.2", features = ["rt-multi-thread"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-normalization = "0.1.25"
 ureq = { version = "3.4.2", features = ["json"] }
 x11rb = "0.14.0"
+zbus = { version = "5.19.0", default-features = false, features = ["tokio"] }
 
 [[bin]]
 name = "champollion-daemon"

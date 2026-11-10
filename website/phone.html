@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Phone Widget · Champollion</title>
+<meta name="description" content="Champollion's flashcard widget for Android: reviewing on the home screen, offline.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  /* The widget's own colours (android/.../CardColors.kt), shown as they are
+     on the phone in either theme. */
+  .widgets { display: flex; flex-wrap: wrap; gap: 20px; align-items: start; }
+  .widgets > div { width: min(100%, 300px); }
+  .widget {
+    width: 100%;
+    border-radius: 24px;
+    padding: 18px 18px 14px;
+    display: grid;
+    gap: 10px;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.12), 0 6px 20px rgb(0 0 0 / 0.10);
+    font-family: Roboto, var(--sans);
+  }
+  .widget.noun1 { background: #ffcdd2; color: rgb(0 0 0 / 0.87); }
+  .widget .top { display: flex; justify-content: space-between; font-size: 0.78rem; opacity: 0.7; }
+  .widget .w { font-size: 1.9rem; font-weight: 600; text-align: center; padding-top: 6px; }
+  .widget .s { text-align: center; font-size: 0.95rem; }
+  .widget .t { text-align: center; font-size: 0.9rem; opacity: 0.7; }
+  .widget .m { font-size: 0.86rem; opacity: 0.85; text-align: center; }
+  .widget .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 6px; }
+  .widget .btn { border-radius: 999px; padding: 6px 14px; font-size: 0.85rem; font-weight: 600; }
+  .widget .fail { background: rgb(0 0 0 / 0.10); }
+  .widget .ok { background: rgb(0 0 0 / 0.78); color: #fff; }
+  .widget .icons { font-size: 0.95rem; letter-spacing: 6px; opacity: 0.75; }
+  .widget-label { font: 600 0.72rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .swatches td { width: 25%; }
+  .sw { display: block; border-radius: 6px; padding: 8px 10px; font-size: 0.85rem; font-weight: 600; text-align: center; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="index.html"><span class="brand-mark">Ch</span>Champollion</a>
+    <nav class="nav" aria-label="Pages">
+      <a href="index.html">Overview</a>
+      <a href="recording.html">Recording</a>
+      <a href="reading.html">Reading the screen</a>
+      <a href="game-text.html">The game's text</a>
+      <a href="cards.html">Cards and reviews</a>
+      <a href="phone.html" aria-current="page">Phone widget</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="page-head">
+    <div class="eyebrow">05 · <span class="chip phone"><span>Phone</span></span></div>
+    <h1>Phone widget</h1>
+    <p class="lede">Reviews happen in a flashcard widget, written in Kotlin with Jetpack Glance, on the phone's home screen, and on a Galaxy Z Flip's cover screen too. It works offline. Since 16 October it runs on a Galaxy A17.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">A review</div>
+      <h2>Front, then back</h2>
+      <p>The front shows the word and the game sentence it was read in. A tap turns it: the translation, its meaning in that sentence, and the sentence's translation, with <strong>Failed</strong> and <strong>Succeed</strong>. ⚑ flags a wrong card: it leaves the reviews and is kept on the backend to be fixed. ↩ takes back the last rating or flag, a misclick, as long as it hasn't been sent.</p>
+    </div>
+    <div class="widgets" role="img" aria-label="The jízda card, front and back, as the widget shows it">
+      <div style="display:grid;gap:8px">
+        <span class="widget-label">Front</span>
+        <div class="widget noun1">
+          <div class="top"><span>48 left · 44 due · 4 new</span><span>🔊</span></div>
+          <div class="w">jízda</div>
+          <div class="s">Bezstarostná jízda</div>
+          <div class="row"><span class="icons">⚑ ↩</span><span class="t">tap to turn</span></div>
+        </div>
+      </div>
+      <div style="display:grid;gap:8px">
+        <span class="widget-label">Back</span>
+        <div class="widget noun1">
+          <div class="top"><span>48 left · 44 due · 4 new</span><span>🔊</span></div>
+          <div class="w">ride; driving</div>
+          <div class="m">A ride or journey, here on horseback, as the name of a quest or save.</div>
+          <div class="t">Carefree ride</div>
+          <div class="row"><span class="btn fail">Failed</span><span class="icons">⚑ 🔊</span><span class="btn ok">Succeed</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="prose muted small">A sketch of the widget, not a screenshot; the counts are illustrative.</p>
+    <p class="prose">Each time a rating or a flag shows the next card, its word is spoken: the backend's ElevenLabs recording, downloaded with the session so it plays offline too. The first card of a session stays silent. 🔊 under the word plays it again; 🔊 next to ⚑ mutes the words.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Colour</div>
+      <h2>Part of speech, darker at each level</h2>
+      <p>Above level 1, the front shows the word alone, and the back the translation and the form of its level, like <em>schovám se</em>, "I'll hide", spoken as it turns. 🗣 says it again. The cards' own colours, from <code>CardColors.kt</code>:</p>
+    </div>
+    <div class="table-wrap">
+      <table class="swatches">
+        <thead><tr><th>Part of speech</th><th>Level 1</th><th>Level 2</th><th>Level 3 and up</th></tr></thead>
+        <tbody>
+          <tr><td>Noun</td><td><span class="sw" style="background:#ffcdd2;color:rgb(0 0 0/.87)">#FFCDD2</span></td><td><span class="sw" style="background:#e57373;color:rgb(0 0 0/.87)">#E57373</span></td><td><span class="sw" style="background:#c62828;color:#fff">#C62828</span></td></tr>
+          <tr><td>Verb</td><td><span class="sw" style="background:#c8e6c9;color:rgb(0 0 0/.87)">#C8E6C9</span></td><td><span class="sw" style="background:#81c784;color:rgb(0 0 0/.87)">#81C784</span></td><td><span class="sw" style="background:#2e7d32;color:#fff">#2E7D32</span></td></tr>
+          <tr><td>Adjective</td><td><span class="sw" style="background:#fff9c4;color:rgb(0 0 0/.87)">#FFF9C4</span></td><td><span class="sw" style="background:#ffd54f;color:rgb(0 0 0/.87)">#FFD54F</span></td><td><span class="sw" style="background:#f9a825;color:#fff">#F9A825</span></td></tr>
+          <tr><td>Anything else</td><td><span class="sw" style="background:#eeeeee;color:rgb(0 0 0/.87)">#EEEEEE</span></td><td><span class="sw" style="background:#bdbdbd;color:rgb(0 0 0/.87)">#BDBDBD</span></td><td><span class="sw" style="background:#616161;color:#fff">#616161</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Offline</div>
+      <h2>A session of 50 cards, synced when it can</h2>
+      <p>The backend is only reachable with the phone's WireGuard tunnel on, so the widget never waits for it. It downloads a whole session, keeps the ratings and flags in a DataStore, and sends them later.</p>
+    </div>
+    <figure class="figure">
+      <div class="diagram">
+        <svg viewBox="0 0 980 250" role="img" aria-labelledby="sync-t">
+          <title id="sync-t">How the widget syncs with the backend</title>
+          <defs><marker id="ah5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="dg-arrowhead"/></marker></defs>
+          <rect x="10" y="10" width="560" height="230" rx="14" class="dg-phone"/>
+          <text x="30" y="38" class="dg-head-phone">PHONE · WORKS OFFLINE</text>
+          <rect x="30" y="56" width="160" height="80" rx="8" class="dg-box"/>
+          <text x="110" y="82" class="dg-text" text-anchor="middle">Session</text>
+          <text x="110" y="102" class="dg-small" text-anchor="middle">45 due + 5 new,</text>
+          <text x="110" y="118" class="dg-small" text-anchor="middle">with their MP3s</text>
+          <rect x="220" y="56" width="160" height="80" rx="8" class="dg-box"/>
+          <text x="300" y="82" class="dg-text" text-anchor="middle">Reviews</text>
+          <text x="300" y="102" class="dg-small" text-anchor="middle">a failed card returns</text>
+          <text x="300" y="118" class="dg-small" text-anchor="middle">later in the session</text>
+          <rect x="410" y="56" width="140" height="80" rx="8" class="dg-box"/>
+          <text x="480" y="82" class="dg-text" text-anchor="middle">DataStore</text>
+          <text x="480" y="102" class="dg-small" text-anchor="middle">ratings and flags</text>
+          <text x="480" y="118" class="dg-small" text-anchor="middle">not sent yet</text>
+          <path d="M190,96 H216" class="dg-arrow" marker-end="url(#ah5)"/>
+          <path d="M380,96 H406" class="dg-arrow" marker-end="url(#ah5)"/>
+          <text x="30" y="172" class="dg-small">WorkManager syncs when the session is done, as soon as the backend is reachable,</text>
+          <text x="30" y="192" class="dg-small">and every 30 minutes. Long-press the app icon → Reload cards replaces the session.</text>
+          <text x="30" y="220" class="dg-mono">"N left" · "N due" at the last sync · "N new"</text>
+
+          <rect x="690" y="56" width="270" height="130" rx="14" class="dg-server"/>
+          <text x="710" y="84" class="dg-head-server">BACKEND · 10.0.0.1</text>
+          <text x="710" y="112" class="dg-small">schedules the ratings it gets</text>
+          <text x="710" y="132" class="dg-small">(SM-2, gaps from 10 minutes)</text>
+          <text x="710" y="152" class="dg-small">and speaks every word</text>
+          <path d="M686,96 H574" class="dg-arrow" marker-end="url(#ah5)"/>
+          <text x="630" y="86" class="dg-mono" text-anchor="middle">GET /cards/due</text>
+          <path d="M574,150 H686" class="dg-arrow" marker-end="url(#ah5)"/>
+          <text x="630" y="140" class="dg-mono" text-anchor="middle">POST /reviews</text>
+          <text x="630" y="168" class="dg-mono" text-anchor="middle">POST /flags</text>
+        </svg>
+      </div>
+      <figcaption>"N left" counts the session's cards, failed ones included; "N due" the cards due on the backend at the last sync, minus those succeeded or flagged since; "N new" the new cards not rated yet.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Two places</div>
+      <h2>Home screen, and the Flip's cover screen</h2>
+      <p>The same widget comes in two versions sharing one session: one for the home screen, and one for the Galaxy Z Flip's cover screen (Flex Window). Samsung requires the latter to be a keyguard widget of at least 352×339 dp, declaring <code>display="sub_screen"</code> in a <code>com.samsung.android.appwidget.provider</code> entry.</p>
+    </div>
+    <pre><code>cd android
+./gradlew installDebug      # phone plugged in, USB debugging on</code></pre>
+    <p class="prose muted">Then tap the Champollion icon: it syncs, and asks the launcher to add the widget. For the cover screen: Settings → Cover screen → Widgets → Flashcards.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">A new phone</div>
+      <h2>Moving to another phone</h2>
+      <p>How the widget moved from the Galaxy Z Flip to a Galaxy A17 on 16 October. The reviews themselves live on the backend, so nothing else needs copying.</p>
+    </div>
+    <ol class="steps prose">
+      <li><div><strong>Turn on developer mode</strong><span class="muted">Settings → About phone → Software information → tap Build number 7 times. Then Settings → Developer options → USB debugging.</span></div></li>
+      <li><div><strong>Plug it in and allow the PC</strong><span class="muted">Accept "Allow USB debugging?", with "Always allow from this computer". <code>adb devices</code> should list it as <code>device</code>, not <code>unauthorized</code>.</span></div></li>
+      <li><div><strong>Install the app</strong><span class="muted"><code>cd android &amp;&amp; ./gradlew installDebug</code> (26 seconds).</span></div></li>
+      <li><div><strong>Bring the WireGuard tunnel over</strong><span class="muted">On the old phone: WireGuard → ⋮ → Settings → Export tunnels, which saves a zip in Downloads. Copy it to the new phone (<code>adb pull</code>, then <code>adb push</code>), and import it there with + → Import from file or archive. Then delete the zip on both: it holds the tunnel's private key.</span></div></li>
+      <li><div><strong>Turn the tunnel off on the old phone</strong><span class="muted">Both phones now share one key and one address, <code>10.0.0.51</code>; connected at once, they knock each other off.</span></div></li>
+    </ol>
+  </section>
+
+  <nav class="next" aria-label="Next page">
+    <a href="cards.html"><span>Previous</span><strong>Cards and reviews</strong></a>
+    <a href="index.html" style="text-align:right"><span>Back to</span><strong>Overview</strong></a>
+  </nav>
+</main>
+</body>
+</html>

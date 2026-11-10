@@ -8,6 +8,9 @@ use super::screencast::ScreenCast;
 
 pub struct Settings {
     pub framerate: u32,
+    /// Frames taller than this are scaled down to it, keeping their
+    /// proportions; 0 keeps the screen's size.
+    pub max_height: u32,
     /// Constant quantizer: lower is sharper and bigger (0-51).
     pub qp: u32,
     /// Length of each file, so a crash only loses the current one.
@@ -36,8 +39,6 @@ impl Recorder {
             .map_err(|_| "not a pipeline")?;
 
         let sink = pipeline.by_name("sink").ok_or("splitmuxsink missing")?;
-        // Matroska stays readable up to the last frame if the process dies.
-        sink.set_property("muxer", gst::ElementFactory::make("matroskamux").build()?);
         sink.set_property("location", format!("{}_%03d.mkv", prefix.display()));
         sink.set_property(
             "max-size-time",
@@ -88,6 +89,7 @@ impl Drop for Recorder {
 fn pipeline_description(cast: &ScreenCast, settings: &Settings) -> String {
     let Settings { framerate, qp, .. } = *settings;
     let keyframe_interval = framerate * 2;
+    let scaled = scaled_size(cast.size, settings.max_height);
     // The compositor sends frames at the monitor's refresh rate, and only
     // when the screen changes. videorate drops to a constant framerate first,
     // so later elements only process the frames that are kept.
@@ -98,24 +100,62 @@ fn pipeline_description(cast: &ScreenCast, settings: &Settings) -> String {
         fd = cast.fd.as_raw_fd(),
         node = cast.node_id,
     );
-    let sink = "h265parse ! splitmuxsink name=sink";
+    // Matroska stays readable up to the last frame if the process dies. The
+    // muxer is set in the description: splitmuxsink creates it when linked,
+    // while the description is parsed, so setting it afterwards came too
+    // late and the files were MP4.
+    let sink = "h265parse ! splitmuxsink name=sink muxer-factory=matroskamux";
 
     if gst::ElementFactory::find("nvcudah265enc").is_some() {
         // Frames stay in GPU memory: the compositor's DMA-BUF is imported into
         // OpenGL, converted to NV12 by a shader and handed to NVENC, which
         // runs on its own chip of the GPU.
+        let scale = scaled
+            .map(|(w, h)| {
+                format!(" ! glcolorscale ! video/x-raw(memory:GLMemory),width={w},height={h}")
+            })
+            .unwrap_or_default();
         format!(
-            "{source} ! glupload ! glcolorconvert ! video/x-raw(memory:GLMemory),format=NV12 \
+            "{source} ! glupload{scale} ! glcolorconvert ! video/x-raw(memory:GLMemory),format=NV12 \
              ! nvcudah265enc rate-control=cqp qp-i={qp} qp-p={qp} qp-b={qp} preset=p4 \
                tune=high-quality gop-size={keyframe_interval} \
              ! {sink}"
         )
     } else {
         tracing::warn!("nvcudah265enc not available, encoding on the CPU with x265enc");
+        let scale = scaled
+            .map(|(w, h)| format!(" ! videoscale ! video/x-raw,width={w},height={h}"))
+            .unwrap_or_default();
         format!(
-            "{source} ! videoconvert \
+            "{source} ! videoconvert{scale} \
              ! x265enc speed-preset=superfast qp={qp} key-int-max={keyframe_interval} \
              ! {sink}"
         )
+    }
+}
+
+/// The size frames are scaled down to, if the screen is taller than
+/// `max_height`: the same proportions, with even sizes as encoders want.
+fn scaled_size(screen: Option<(i32, i32)>, max_height: u32) -> Option<(u32, u32)> {
+    let (width, height) = screen?;
+    let (width, height) = (u32::try_from(width).ok()?, u32::try_from(height).ok()?);
+    if max_height == 0 || height <= max_height {
+        return None;
+    }
+    let scaled_width = (width as u64 * max_height as u64 / height as u64) as u32;
+    Some((scaled_width & !1, max_height & !1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scales_down_keeping_proportions() {
+        assert_eq!(scaled_size(Some((2560, 1440)), 1080), Some((1920, 1080)));
+        assert_eq!(scaled_size(Some((3440, 1440)), 1080), Some((2580, 1080)));
+        assert_eq!(scaled_size(Some((1920, 1080)), 1080), None);
+        assert_eq!(scaled_size(Some((2560, 1440)), 0), None);
+        assert_eq!(scaled_size(None, 1080), None);
     }
 }

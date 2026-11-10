@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cards and Reviews · Champollion</title>
+<meta name="description" content="How Champollion turns new words into flashcards with Claude, and when the backend shows them again.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/charts.js" defer></script>
+<style>
+  .flashcard { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+  .flashcard .side { font: 600 0.72rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .flashcard .word { font-family: var(--serif); font-size: 2rem; font-weight: 600; line-height: 1.1; }
+  .flashcard .pos { display: inline-block; font-size: 0.8rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--series-2-soft); color: var(--series-2); width: max-content; }
+  .flashcard .sentence { font-size: 1.05rem; }
+  .flashcard dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 0.95rem; }
+  .flashcard dt { color: var(--muted); }
+  .flashcard dd { margin: 0; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="index.html"><span class="brand-mark">Ch</span>Champollion</a>
+    <nav class="nav" aria-label="Pages">
+      <a href="index.html">Overview</a>
+      <a href="recording.html">Recording</a>
+      <a href="reading.html">Reading the screen</a>
+      <a href="game-text.html">The game's text</a>
+      <a href="cards.html" aria-current="page">Cards and reviews</a>
+      <a href="phone.html">Phone widget</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="page-head">
+    <div class="eyebrow">04 · <span class="chip desktop"><span>Desktop</span></span> <span class="chip server"><span>Server</span></span></div>
+    <h1>Cards and reviews</h1>
+    <p class="lede">New words become flashcards on the desktop, written by Claude from the screens they were read on. The backend stores them, speaks them, and decides when each comes back.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Making cards</div>
+      <h2>Claude reads the screens with you</h2>
+      <p>Every minute, the daemon takes the words not made into cards yet, about 40 at a time, with the text of the screens they were read on, and asks Claude through the Claude Code CLI in headless mode (<code>claude -p</code>: its own login, no tools, no settings, thinking off). Sonnet takes about 20 seconds per batch and understands the context much better than Haiku. For each word it returns:</p>
+    </div>
+    <div class="two">
+      <ul class="prose">
+        <li>the sentence it was read in, whole even across lines, with OCR errors and button icons cleaned up (<code>Pomozmna nádvoří</code> → <code>Pomoz na nádvoří</code>)</li>
+        <li>its dictionary form (<code>králem</code> → <code>král</code>), part of speech and gender</li>
+        <li>its English translation, and its meaning in that sentence, slang included</li>
+        <li>the sentence's translation</li>
+        <li>whether to keep it at all: not English UI text, OCR garbage, names or numbers</li>
+      </ul>
+      <div class="flashcard" aria-label="Example card">
+        <span class="side">A card made on 14 October</span>
+        <span class="word">jízda</span>
+        <span class="pos">noun · feminine</span>
+        <span class="sentence"><strong>Bezstarostná jízda</strong> <span class="muted">· Carefree ride</span></span>
+        <dl>
+          <dt>Translation</dt><dd>ride; driving</dd>
+          <dt>Here</dt><dd>A ride or journey, here on horseback, as the name of a quest or save.</dd>
+        </dl>
+      </div>
+    </div>
+    <p class="prose">There is one card per dictionary form. Each time a word is read in the game, it adds a <em>sighting</em> to its card (the form read, the sentence, the translations), so <em>král</em> and <em>králem</em> make one card with two sightings. On the desktop, <code>cards.jsonl</code> holds the cards made, <code>dropped.tsv</code> the words left out and why, and <code>generated.txt</code> and <code>uploaded.txt</code> how far each step got.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Scheduling</div>
+      <h2>When a card comes back</h2>
+      <p>The backend schedules reviews like Anki's SM-2, with two ratings and gaps that start at 10 minutes rather than a day. A success multiplies the gap by the card's ease and 1.3; the ease starts at 2.5 and grows by 0.15 with each success. A failure brings the gap back to 10 minutes and lowers the ease by 0.2, down to 1.3 at least.</p>
+    </div>
+    <figure class="figure">
+      <div class="figure-title">The gap after each success in a row, for a new card</div>
+      <div class="figure-sub">Logarithmic scale: each grid line is a step of time much longer than the last</div>
+      <div id="chart-gaps"></div>
+      <figcaption>The seventh success would give 25 days. A noun or verb whose gap would pass 7 days moves up to level 2 instead, if it has a form for it: its back now teaches a form of the word (a noun's accusative singular, a verb's first person singular), and it starts again from 10 minutes with the first ease. Cards never move down.</figcaption>
+    </figure>
+    <div class="stats">
+      <div class="stat"><span class="label">A review session</span><span class="value">50 cards</span><span class="note">45 due for review, then 5 new, each in random order</span></div>
+      <div class="stat"><span class="label">First gap, and after a failure</span><span class="value">10 min</span><span class="note">gaps then grow by ease × 1.3</span></div>
+      <div class="stat"><span class="label">Level up when the gap passes</span><span class="value">7 days</span><span class="note">nouns and verbs with a next form</span></div>
+    </div>
+    <p class="prose muted">In a session, one card in ten is new, and either kind fills what the other lacks.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Progress</div>
+      <h2>How it's going</h2>
+      <p>From 4 to 16 October: 15,089 reviews of 808 words, 65.7% succeeded, about 1,160 a day. Success climbed from 30% on the first day to 79% on the last, dipping on days with many new words, like 11 October with 148.</p>
+    </div>
+    <div class="two">
+      <figure class="figure">
+        <div class="figure-title">Reviews per day</div>
+        <div class="figure-sub">October 2026</div>
+        <div id="chart-reviews"></div>
+      </figure>
+      <figure class="figure">
+        <div class="figure-title">Share of reviews succeeded, per day</div>
+        <div class="figure-sub">Percent · October 2026</div>
+        <div id="chart-success"></div>
+      </figure>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="label">Words reviewed</span><span class="value">808</span><span class="note">188 of them at level 2</span></div>
+      <div class="stat"><span class="label">Cards failed over 10 times</span><span class="value">158</span><span class="note">one card in five</span></div>
+      <div class="stat"><span class="label">Their share of all failures</span><span class="value">74%</span><span class="note">3,763 of 5,062</span></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Hardest words</th><th>Translation</th><th class="num">Failures</th></tr></thead>
+        <tbody>
+          <tr><td><em>získat</em></td><td>to gain, to get</td><td class="num">85</td></tr>
+          <tr><td><em>zrovna</em></td><td>just, right now</td><td class="num">72</td></tr>
+          <tr><td><em>přece</em></td><td>after all, surely</td><td class="num">62</td></tr>
+          <tr><td><em>zjistit</em></td><td>to find out</td><td class="num">59</td></tr>
+          <tr><td><em>poselství</em></td><td>message; mission</td><td class="num">56</td></tr>
+          <tr><td><em>uložený</em></td><td>saved, stored</td><td class="num">52</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="prose muted">Each failure brings a card back in 10 minutes, so these few words make a large share of the daily reviews; many are abstract words that are hard to pin to one translation. Anki calls them leeches, and sets them aside after about 8 failures; here, keeping the game sentence on their front is one option.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">The backend</div>
+      <h2>A small HTTP API behind WireGuard</h2>
+      <p><code>champollion-backend</code> stores the cards in PostgreSQL on taillandier.io and only listens on its WireGuard address, <code>10.0.0.1:8090</code>. The desktop (<code>10.0.0.50</code>) and the phone (<code>10.0.0.51</code>) are the only peers. The JSON types live in the shared <code>champollion-api</code> crate.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Request</th><th>Does</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">GET /health</td><td><code>ok</code></td></tr>
+          <tr><td class="mono">POST /cards</td><td>Adds cards and sightings; known cards keep their schedule but take the forms sent</td></tr>
+          <tr><td class="mono">GET /cards/due?limit=50</td><td>A session: cards due, then new ones, with their sightings</td></tr>
+          <tr><td class="mono">GET /cards/due/count</td><td><code>{"due": n, "new": n}</code>, which the study lock asks every 30 seconds</td></tr>
+          <tr><td class="mono">GET /cards/{id}/audio?level=1</td><td>The MP3 of the word, or of its form for a higher level</td></tr>
+          <tr><td class="mono">POST /reviews</td><td>Ratings; a review sent twice counts once</td></tr>
+          <tr><td class="mono">POST /flags</td><td>Wrong cards, taken out of the reviews to be fixed</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="lessons">
+      <div class="lesson"><h3>Layers</h3><p><code>controllers/</code> only speak HTTP, <code>services/</code> hold the rules and transactions, <code>repositories/</code> run one query per function, and <code>schedule.rs</code> computes the next review without a database.</p></div>
+      <div class="lesson"><h3>Pronunciations</h3><p>A background task asks ElevenLabs to speak every card's dictionary form and forms, the soonest due first, and stores the MP3s. Each word is sent with its language and a period (<code>do.</code>), or a short one gets read as English.</p></div>
+      <div class="lesson"><h3>Deploying</h3><p>The server and the desktop both run Ubuntu 24.04, so a local build runs there. <code>setup-server.sh</code> creates the database and the <code>champollion</code> user, installs the service and opens port 8090 on <code>wg0</code> only.</p></div>
+    </div>
+  </section>
+
+  <nav class="next" aria-label="Next page">
+    <a href="game-text.html"><span>Previous</span><strong>The game's own text</strong></a>
+    <a href="phone.html" style="text-align:right"><span>Next</span><strong>Phone widget</strong></a>
+  </nav>
+</main>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  // Gaps from backend/src/schedule.rs: first success 10 min, then
+  // gap × ease × 1.3, ease 2.5 + 0.15 per success.
+  const gaps = [];
+  let gap = 10, ease = 2.5;
+  for (let reps = 0; reps < 7; reps++) {
+    gap = reps === 0 ? 10 : gap * ease * 1.3;
+    ease += 0.15;
+    gaps.push(gap);
+  }
+  const human = (m) => m < 60 ? Math.round(m) + " min" : m < 1440 ? (m / 60).toFixed(1) + " h" : m / 1440 < 10 ? (m / 1440).toFixed(1) + " days" : Math.round(m / 1440) + " days";
+  const data = gaps.map((m, i) => ({
+    label: `Success ${i + 1}`,
+    value: m,
+    color: "series-2",
+    note: i === 6 ? "a noun or verb with a next form moves up a level instead" : "",
+  }));
+  const days = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+  const reviews = [188, 304, 1702, 2155, 1296, 922, 1063, 1656, 2096, 557, 1391, 388, 1371];
+  const success = [30, 35, 56, 57, 68, 75, 70, 62, 68, 74, 71, 73, 79];
+  Charts.lines(document.getElementById("chart-reviews"), {
+    title: "Reviews per day, 4 to 16 October",
+    x: days,
+    xName: "October",
+    xLabel: "October",
+    series: [{ name: "Reviews", color: "series-2", values: reviews }],
+    format: (v) => Math.round(v).toLocaleString("en"),
+    table: { head: ["October", "Reviews"], rows: days.map((d, i) => [d, reviews[i].toLocaleString("en")]) },
+  });
+  Charts.lines(document.getElementById("chart-success"), {
+    title: "Share of reviews succeeded per day, 4 to 16 October",
+    x: days,
+    xName: "October",
+    xLabel: "October",
+    series: [{ name: "Succeeded", color: "series-2", values: success }],
+    format: (v) => Math.round(v) + "%",
+    table: { head: ["October", "Succeeded"], rows: days.map((d, i) => [d, success[i] + "%"]) },
+  });
+  Charts.columns(document.getElementById("chart-gaps"), {
+    title: "Gap before the next review after each success, logarithmic scale",
+    data,
+    log: true,
+    logMin: 5,
+    logTicks: [{ value: 10, label: "10 min" }, { value: 60, label: "1 hour" }, { value: 1440, label: "1 day" }, { value: 10080, label: "1 week" }, { value: 43200, label: "1 month" }],
+    format: human,
+    height: 320,
+    table: { head: ["Success in a row", "Gap"], rows: data.map((d) => [d.label, human(d.value)]) },
+  });
+});
+</script>
+</body>
+</html>

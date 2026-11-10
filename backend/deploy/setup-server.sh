@@ -27,6 +27,19 @@ sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'champollion'
     sudo -u postgres createuser champollion
 sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'champollion'" | grep -q 1 ||
     sudo -u postgres createdb -O champollion champollion
+# The admin running this script may read the cards, without sudo
+# (psql champollion), but not change them. Tables the backend's migrations
+# add later are readable too.
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+    sudo -u postgres psql -q -v ON_ERROR_STOP=1 -v reader="$SUDO_USER" champollion <<'EOF'
+SELECT format('CREATE ROLE %I LOGIN', :'reader')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'reader') \gexec
+GRANT CONNECT ON DATABASE champollion TO :"reader";
+GRANT USAGE ON SCHEMA public TO :"reader";
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO :"reader";
+ALTER DEFAULT PRIVILEGES FOR ROLE champollion IN SCHEMA public GRANT SELECT ON TABLES TO :"reader";
+EOF
+fi
 
 for peer in "$@"; do
     name=${peer%%=*}

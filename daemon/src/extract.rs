@@ -1,39 +1,40 @@
-//! Reads the text in finished recordings while the game is not running.
+//! Reads the text in finished recordings, while the game runs too: a Jetson
+//! reads them on its GPU (`remote`), and this thread keeps track of the words
+//! and screens seen, saving those new to the vocabulary.
 
 mod ocr;
+mod remote;
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use gstreamer as gst;
-use gstreamer::prelude::*;
-use gstreamer_app::AppSink;
-use image::{RgbImage, imageops};
 use serde::Serialize;
 
-pub use ocr::Ocr;
-use ocr::{Reader, Screen, Word};
+use ocr::{Screen, Word};
 
 pub struct Config {
     pub recordings_dir: PathBuf,
     pub text_dir: PathBuf,
     /// Frames read per second of video.
     pub samples_per_second: u32,
-    /// Frames read in parallel.
-    pub workers: usize,
-    pub ocr: Ocr,
+    /// OCR confidence (0-100) under which a word is not kept.
+    pub min_confidence: f32,
+    /// SSH destination of the machine reading the recordings, with
+    /// `~/ocr/read-recording` (a Jetson).
+    pub remote: String,
 }
 
-/// Background thread reading recordings; it only works while `allowed`.
+/// Background thread reading recordings.
 pub struct Indexer {
-    pub allowed: Arc<AtomicBool>,
+    /// File prefix of the recording being made (see `record::file_prefix`),
+    /// whose last file is not finished.
+    pub recording: Arc<Mutex<Option<PathBuf>>>,
     /// What the indexer is doing, for the tray; `None` when idle.
     pub status: Arc<Mutex<Option<String>>>,
     handle: thread::JoinHandle<()>,
@@ -41,12 +42,12 @@ pub struct Indexer {
 
 impl Indexer {
     pub fn spawn(config: Config, stop: Arc<AtomicBool>) -> Self {
-        let allowed = Arc::new(AtomicBool::new(false));
+        let recording = Arc::new(Mutex::new(None));
         let status = Arc::new(Mutex::new(None));
         let ctx = Context {
             config,
             stop,
-            allowed: allowed.clone(),
+            recording: recording.clone(),
             status: status.clone(),
         };
         let handle = thread::Builder::new()
@@ -54,7 +55,7 @@ impl Indexer {
             .spawn(move || ctx.run())
             .expect("spawn text indexer thread");
         Self {
-            allowed,
+            recording,
             status,
             handle,
         }
@@ -68,7 +69,7 @@ impl Indexer {
 struct Context {
     config: Config,
     stop: Arc<AtomicBool>,
-    allowed: Arc<AtomicBool>,
+    recording: Arc<Mutex<Option<PathBuf>>>,
     status: Arc<Mutex<Option<String>>>,
 }
 
@@ -176,13 +177,17 @@ struct Video {
 enum Outcome {
     Done,
     Interrupted,
+    /// The remote reader could not be reached; read it later.
+    Retry(String),
 }
 
 struct Frame {
     index: u64,
     seconds: f64,
-    image: RgbImage,
 }
+
+/// Time to wait before trying an unreachable remote reader again.
+const REMOTE_RETRY: Duration = Duration::from_secs(60);
 
 #[derive(Serialize)]
 struct FrameText<'a> {
@@ -194,21 +199,11 @@ struct FrameText<'a> {
 
 impl Context {
     fn run(self) {
-        if let Err(e) = self.config.ocr.check() {
-            tracing::warn!("not reading text from recordings: {e}");
-            return;
-        }
-        // Kept for the whole run: each reader loads the language model once.
-        let mut readers: Vec<Reader> = (0..self.config.workers.max(1))
-            .map(|_| self.config.ocr.reader())
-            .collect();
+        run_when_idle();
+        tracing::info!("reading text from recordings on {}", self.config.remote);
         let mut games: HashMap<String, GameText> = HashMap::new();
+        let mut unreachable = false;
         while !self.stop.load(Ordering::Relaxed) {
-            if !self.allowed.load(Ordering::Relaxed) {
-                self.set_status(None);
-                thread::sleep(Duration::from_secs(1));
-                continue;
-            }
             let Some(video) = self.next_video() else {
                 self.set_status(None);
                 self.sleep(Duration::from_secs(30));
@@ -217,13 +212,25 @@ impl Context {
             let game = games
                 .entry(video.game.clone())
                 .or_insert_with(|| GameText::load(self.config.text_dir.join(&video.game)));
-            tracing::info!("reading text from {}", video.id);
-            match self.read_video(&video, game, &mut readers) {
+            if !unreachable {
+                tracing::info!("reading text from {}", video.id);
+            }
+            match self.read_remote(&video, game) {
                 Ok(Outcome::Done) => {
                     tracing::info!("finished reading {}", video.id);
                     game.append("processed.txt", &format!("{}\n", video.id));
+                    unreachable = false;
                 }
                 Ok(Outcome::Interrupted) => return,
+                Ok(Outcome::Retry(e)) => {
+                    // Logged once, not every minute while it is off.
+                    if !unreachable {
+                        tracing::warn!("cannot reach the reader, trying again every minute: {e}");
+                        unreachable = true;
+                    }
+                    self.set_status(Some("Waiting for the Jetson".into()));
+                    self.sleep(REMOTE_RETRY);
+                }
                 Err(e) => {
                     // Marked as processed anyway so a broken file is not
                     // retried forever.
@@ -247,10 +254,12 @@ impl Context {
         }
     }
 
-    /// The oldest recording not read yet. Names sort chronologically, and
-    /// reading in order makes "first seen" in the vocabulary accurate.
+    /// The oldest recording not read yet, leaving out the file being
+    /// recorded. Names sort chronologically, and reading in order makes
+    /// "first seen" in the vocabulary accurate.
     fn next_video(&self) -> Option<Video> {
         let root = &self.config.recordings_dir;
+        let recording = self.recording.lock().unwrap().clone();
         for game_dir in read_dir_sorted(root).into_iter().filter(|p| p.is_dir()) {
             let game = game_dir.file_name()?.to_string_lossy().into_owned();
             let processed = GameText::processed(&self.config.text_dir.join(&game));
@@ -258,10 +267,15 @@ impl Context {
                 .into_iter()
                 .filter(|p| p.is_dir())
             {
-                for path in read_dir_sorted(&day) {
-                    if path.extension().is_none_or(|e| e != "mkv") {
-                        continue;
-                    }
+                let files: Vec<PathBuf> = read_dir_sorted(&day)
+                    .into_iter()
+                    .filter(|p| p.extension().is_some_and(|e| e == "mkv"))
+                    .collect();
+                let unfinished = recording
+                    .as_deref()
+                    .and_then(|prefix| being_recorded(&files, prefix));
+                for path in files.iter().filter(|p| Some(*p) != unfinished) {
+                    let path = path.clone();
                     let id = path.strip_prefix(root).ok()?.to_string_lossy().into_owned();
                     if !processed.contains(&id) {
                         return Some(Video { path, id, game });
@@ -272,149 +286,36 @@ impl Context {
         None
     }
 
-    fn read_video(
-        &self,
-        video: &Video,
-        game: &mut GameText,
-        readers: &mut [Reader],
-    ) -> Result<Outcome, String> {
+    /// Reads the recording on the remote machine, handling its frames here
+    /// in order.
+    fn read_remote(&self, video: &Video, game: &mut GameText) -> Result<Outcome, String> {
         let rate = self.config.samples_per_second.max(1);
-        // decodebin picks the GPU decoder (nvh265dec) when there is one.
-        let pipeline = gst::parse::launch(&format!(
-            "filesrc name=src ! decodebin ! videoconvert ! videorate \
-             ! video/x-raw,format=RGB,framerate={rate}/1 \
-             ! appsink name=frames sync=false max-buffers=2"
-        ))
-        .map_err(|e| e.to_string())?
-        .downcast::<gst::Pipeline>()
-        .map_err(|_| "not a pipeline")?;
-        pipeline
-            .by_name("src")
-            .ok_or("no filesrc")?
-            .set_property("location", &video.path);
-        let sink = pipeline
-            .by_name("frames")
-            .and_then(|e| e.downcast::<AppSink>().ok())
-            .ok_or("no appsink")?;
-        pipeline
-            .set_state(gst::State::Playing)
-            .map_err(|e| e.to_string())?;
-
-        let result = self.read_frames(video, game, &pipeline, &sink, readers);
-        let _ = pipeline.set_state(gst::State::Null);
-        result
-    }
-
-    /// Decodes frames on one thread, reads them on `workers` threads, and
-    /// handles the results in order on this one.
-    fn read_frames(
-        &self,
-        video: &Video,
-        game: &mut GameText,
-        pipeline: &gst::Pipeline,
-        sink: &AppSink,
-        readers: &mut [Reader],
-    ) -> Result<Outcome, String> {
-        let workers = readers.len();
-        let (frames_tx, frames_rx) = sync_channel::<Frame>(workers * 2);
-        let frames_rx = Arc::new(Mutex::new(frames_rx));
-        let (read_tx, read_rx) = sync_channel::<(Frame, Result<Screen, String>)>(workers * 2);
         let name = video.path.file_name().unwrap_or_default().to_string_lossy();
-
-        thread::scope(|scope| {
-            let decoder = scope.spawn(move || self.decode(pipeline, sink, frames_tx));
-            for reader in readers.iter_mut() {
-                let frames_rx = Arc::clone(&frames_rx);
-                let read_tx = read_tx.clone();
-                scope.spawn(move || {
-                    loop {
-                        let Ok(frame) = frames_rx.lock().unwrap().recv() else {
-                            break;
-                        };
-                        let screen = reader
-                            .read(&imageops::grayscale(&frame.image))
-                            .map_err(|e| format!("tesseract failed: {e}"));
-                        if read_tx.send((frame, screen)).is_err() {
-                            break;
-                        }
-                    }
-                });
-            }
-            drop(read_tx);
-            drop(frames_rx);
-
-            let rate = self.config.samples_per_second.max(1) as f64;
-            let mut duration = None;
-            let mut pending = BTreeMap::new();
-            let mut next = 0;
-            let mut tracker = Tracker::new(rate);
-            for (frame, screen) in read_rx {
-                pending.insert(frame.index, (frame, screen));
-                while let Some((frame, screen)) = pending.remove(&next) {
-                    next += 1;
-                    self.handle_frame(video, game, &mut tracker, frame, screen?);
-                }
-                duration = duration.or_else(|| {
-                    pipeline
-                        .query_duration::<gst::ClockTime>()
-                        .map(|d| d.seconds_f64())
-                });
-                if let Some(duration) = duration.filter(|d| *d > 0.0) {
-                    let percent = (next as f64 / rate / duration * 100.0).min(100.0);
-                    self.set_status(Some(format!("Reading text from {name} · {percent:.0}%")));
-                }
-            }
-            decoder
-                .join()
-                .map_err(|_| "decoder thread panicked".to_owned())?
-        })
-    }
-
-    /// Pulls frames from the pipeline, pausing it while reading is not allowed.
-    fn decode(
-        &self,
-        pipeline: &gst::Pipeline,
-        sink: &AppSink,
-        frames: std::sync::mpsc::SyncSender<Frame>,
-    ) -> Result<Outcome, String> {
+        let mut tracker = Tracker::new(rate as f64);
         let mut index = 0;
-        loop {
-            if !self.allowed.load(Ordering::Relaxed) {
-                let _ = pipeline.set_state(gst::State::Paused);
-                self.set_status(Some("Reading text paused while playing".into()));
-                while !self.allowed.load(Ordering::Relaxed) {
-                    if self.stop.load(Ordering::Relaxed) {
-                        return Ok(Outcome::Interrupted);
-                    }
-                    thread::sleep(Duration::from_millis(500));
-                }
-                let _ = pipeline.set_state(gst::State::Playing);
-            }
-            if self.stop.load(Ordering::Relaxed) {
-                return Ok(Outcome::Interrupted);
-            }
-            let Ok(sample) = sink.pull_sample() else {
-                // End of stream, or an error reported on the bus.
-                return match pipeline
-                    .bus()
-                    .and_then(|b| b.pop_filtered(&[gst::MessageType::Error]))
-                {
-                    Some(msg) => match msg.view() {
-                        gst::MessageView::Error(err) => Err(err.error().to_string()),
-                        _ => Ok(Outcome::Done),
-                    },
-                    None => Ok(Outcome::Done),
-                };
-            };
-            let frame = to_frame(&sample, index).ok_or("unexpected frame format")?;
+        let host = &self.config.remote;
+        let result = remote::read(host, &video.path, rate, &self.stop, &mut |frame| {
+            let screen = ocr::parse_tsv(&frame.tsv, self.config.min_confidence);
+            let seconds = frame.seconds;
+            let frame = Frame { index, seconds };
+            self.handle_frame(video, game, &mut tracker, frame, screen);
             index += 1;
-            if frames.send(frame).is_err() {
-                return Err("frame readers stopped".into());
-            }
+            let secs = seconds as u64;
+            self.set_status(Some(format!(
+                "Reading text on the Jetson from {name} · {}:{:02}",
+                secs / 60,
+                secs % 60
+            )));
+        });
+        match result {
+            Ok(true) => Ok(Outcome::Done),
+            Ok(false) => Ok(Outcome::Interrupted),
+            Err(remote::Failure::Unreachable(e)) => Ok(Outcome::Retry(e)),
+            Err(remote::Failure::Failed(e)) => Err(e),
         }
     }
 
-    /// Saves the frame when confirmed words appeared, and records words
+    /// Saves the frame's text when confirmed words appeared, and records words
     /// never seen before in the vocabulary.
     fn handle_frame(
         &self,
@@ -447,12 +348,10 @@ impl Context {
             .unwrap_or_default();
         let secs = frame.seconds as u64;
         let name = format!("{stem}+{:02}m{:02}s", secs / 60, secs % 60);
-        let png = game.dir.join(day).join(format!("{name}.png"));
-        let json = png.with_extension("json");
-
-        let saved = fs::create_dir_all(png.parent().unwrap())
+        // Only the text is kept: the picture is in the recording.
+        let json = game.dir.join(day).join(format!("{name}.json"));
+        let saved = fs::create_dir_all(json.parent().unwrap())
             .map_err(|e| e.to_string())
-            .and_then(|()| frame.image.save(&png).map_err(|e| e.to_string()))
             .and_then(|()| {
                 let text = FrameText {
                     video: &video.id,
@@ -464,19 +363,21 @@ impl Context {
                 fs::write(&json, body).map_err(|e| e.to_string())
             });
         if let Err(e) = saved {
-            tracing::error!("could not save {}: {e}", png.display());
+            tracing::error!("could not save {}: {e}", json.display());
             return;
         }
 
-        let png_id = png
+        // The frame's name, for its sightings (`.png` before the pictures
+        // were dropped; cards look for the `.json` either way).
+        let frame_id = json
             .strip_prefix(&game.dir)
-            .unwrap_or(&png)
+            .unwrap_or(&json)
             .to_string_lossy()
             .into_owned();
         for word in words.iter().filter(|w| w.new) {
             if game.vocabulary.insert(word.key()) {
                 let line = format!(
-                    "{}\t{png_id}\t{}\t{:.1}\t{}\n",
+                    "{}\t{frame_id}\t{}\t{:.1}\t{}\n",
                     word.key(),
                     video.id,
                     frame.seconds,
@@ -549,26 +450,31 @@ impl Tracker {
     }
 }
 
-fn to_frame(sample: &gst::Sample, index: u64) -> Option<Frame> {
-    let caps = sample.caps()?;
-    let s = caps.structure(0)?;
-    let width = u32::try_from(s.get::<i32>("width").ok()?).ok()?;
-    let height = u32::try_from(s.get::<i32>("height").ok()?).ok()?;
-    let buffer = sample.buffer()?;
-    let seconds = buffer.pts().map(|t| t.seconds_f64()).unwrap_or(0.0);
-    let map = buffer.map_readable().ok()?;
-    // Rows may be padded to a multiple of 4 bytes.
-    let stride = map.len() / height as usize;
-    let row = width as usize * 3;
-    let mut pixels = Vec::with_capacity(row * height as usize);
-    for y in 0..height as usize {
-        pixels.extend_from_slice(map.get(y * stride..y * stride + row)?);
+/// The file of `files` still being written by the recording whose files are
+/// `<prefix>_NNN.mkv`: its last one.
+fn being_recorded<'a>(files: &'a [PathBuf], prefix: &Path) -> Option<&'a PathBuf> {
+    let name = format!("{}_", prefix.file_name()?.to_string_lossy());
+    files
+        .iter()
+        .filter(|f| {
+            f.parent() == prefix.parent()
+                && f.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with(&name))
+        })
+        .max()
+}
+
+/// Lets the game have the CPU first: this thread, and the threads it starts,
+/// only run on cores nothing else wants.
+fn run_when_idle() {
+    let param = libc::sched_param { sched_priority: 0 };
+    // SAFETY: sched_setscheduler(2) on the calling thread, with a valid param.
+    if unsafe { libc::sched_setscheduler(0, libc::SCHED_IDLE, &param) } != 0 {
+        tracing::warn!(
+            "could not lower the priority of reading text: {}",
+            std::io::Error::last_os_error()
+        );
     }
-    Some(Frame {
-        index,
-        seconds,
-        image: RgbImage::from_raw(width, height, pixels)?,
-    })
 }
 
 /// Reads `skip-screens.txt`, creating it with defaults the first time.
@@ -638,6 +544,32 @@ mod tests {
         // One menu word in a dialogue line is not the menu.
         assert!(!game.is_skipped_screen(&screen(&["Pokračovat", "do", "Skalice"])));
         let _ = fs::remove_dir_all(dir.parent().unwrap());
+    }
+
+    #[test]
+    fn leaves_out_the_file_being_recorded() {
+        let day = PathBuf::from("/r/game/2026-10-05");
+        let files = [
+            "10-00-00_000.mkv",
+            "10-00-00_001.mkv",
+            "11-30-00_000.mkv",
+            "11-30-00_001.mkv",
+        ]
+        .map(|f| day.join(f));
+        assert_eq!(
+            being_recorded(&files, &day.join("11-30-00")),
+            Some(&day.join("11-30-00_001.mkv"))
+        );
+        assert_eq!(
+            being_recorded(&files[..2], &day.join("10-00-00")),
+            Some(&day.join("10-00-00_001.mkv"))
+        );
+        // Not written yet, or in another day's directory.
+        assert_eq!(being_recorded(&files, &day.join("12-00-00")), None);
+        assert_eq!(
+            being_recorded(&files, Path::new("/r/game/2026-10-06/11-30-00")),
+            None
+        );
     }
 
     #[test]
