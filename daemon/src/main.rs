@@ -23,6 +23,19 @@ const DEFAULT_APP_ID: u32 = 1771300;
 /// Time a locked game gets to quit after being asked, before being killed.
 const QUIT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Wait before recording again after a failure, doubled after each failure
+/// in a row up to `RETRY_MAX`, so a recording that keeps failing (or a
+/// screen-sharing dialog that keeps being cancelled) is not retried in a
+/// tight loop.
+const RETRY_MIN: Duration = Duration::from_secs(10);
+const RETRY_MAX: Duration = Duration::from_secs(5 * 60);
+
+/// A recording that ran this long before failing is started again right
+/// away. The desktop drops the stream's format while it switches buffers,
+/// at each of the game's loading screens, and the PipeWire source takes that
+/// as an error (`not-negotiated`) instead of waiting for the new format.
+const RETRY_AT_ONCE_AFTER: Duration = Duration::from_secs(5);
+
 /// Records the screen while a Steam game runs so its on-screen text can be studied.
 #[derive(Parser, Debug)]
 #[command(version)]
@@ -287,9 +300,9 @@ fn main() {
     // With its file prefix.
     let mut recording: Option<(Recording, PathBuf)> = None;
     let mut paused = false;
-    // Why the last attempt to record failed. Kept until the game restarts so
-    // a cancelled screen-sharing dialog is not shown again in a loop.
-    let mut failure: Option<String> = None;
+    // Why the last attempt to record failed, and when to try again.
+    let mut failure: Option<(String, Instant)> = None;
+    let mut retry_delay = RETRY_MIN;
     let mut windows = window::Windows::new();
     // Logged once per launch, while Steam is still in front of the game.
     let mut waiting_for_window = false;
@@ -314,9 +327,20 @@ fn main() {
                 );
                 recording.take().unwrap().0.stop(&rt, true);
             } else if let Some(reason) = rec.failure() {
-                tracing::error!("recording failed: {reason}");
+                let wait = if rec.since.elapsed() >= RETRY_AT_ONCE_AFTER {
+                    retry_delay = RETRY_MIN;
+                    Duration::ZERO
+                } else {
+                    let wait = retry_delay;
+                    retry_delay = (retry_delay * 2).min(RETRY_MAX);
+                    wait
+                };
+                tracing::error!(
+                    "recording failed, trying again in {}s: {reason}",
+                    wait.as_secs()
+                );
                 recording.take().unwrap().0.stop(&rt, false);
-                failure = Some(reason);
+                failure = Some((reason, Instant::now() + wait));
             }
         }
 
@@ -348,27 +372,28 @@ fn main() {
             _ => closing = None,
         }
 
+        let may_start = recording.is_none()
+            && !paused
+            && failure.as_ref().is_none_or(|(_, at)| Instant::now() >= *at);
         match &game {
             // Closed above, not worth recording.
             Some(_) if locked.is_some() => {}
             None => {
                 failure = None;
+                retry_delay = RETRY_MIN;
                 waiting_for_window = false;
             }
             // Steam shows its own (English) window for a while after the game
             // process starts; only record once the game's window is in front.
             Some(game)
-                if recording.is_none()
-                    && failure.is_none()
-                    && !paused
-                    && windows.game_in_front(game) == Some(false) =>
+                if may_start && windows.game_in_front(game) == Some(false) =>
             {
                 if !waiting_for_window {
                     tracing::info!("{} is starting, waiting for its window", game.name);
                     waiting_for_window = true;
                 }
             }
-            Some(game) if recording.is_none() && failure.is_none() && !paused => {
+            Some(game) if may_start => {
                 tracing::info!("starting to record {} ({})", game.name, game.app_id);
                 let prefix = record::file_prefix(&output_dir, game);
                 // Before the first file exists, so it is not read unfinished.
@@ -376,10 +401,14 @@ fn main() {
                     *indexer.recording.lock().unwrap() = Some(prefix.clone());
                 }
                 match Recording::start(&rt, &prefix, &settings) {
-                    Ok(rec) => recording = Some((rec, prefix)),
+                    Ok(rec) => {
+                        recording = Some((rec, prefix));
+                        failure = None;
+                    }
                     Err(e) => {
-                        tracing::error!("{e}");
-                        failure = Some(e);
+                        tracing::error!("{e}, trying again in {}s", retry_delay.as_secs());
+                        failure = Some((e, Instant::now() + retry_delay));
+                        retry_delay = (retry_delay * 2).min(RETRY_MAX);
                     }
                 }
             }
@@ -393,7 +422,7 @@ fn main() {
                 due,
                 unlock_below: lock.unlock_below(),
             },
-            (None, Some(reason)) => State::Failed(reason.clone()),
+            (None, Some((reason, _))) => State::Failed(reason.clone()),
             (None, None) => match indexer
                 .as_ref()
                 .and_then(|i| i.status.lock().unwrap().clone())
