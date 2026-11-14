@@ -20,6 +20,15 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- Typing a level 3 card's word, opened from the widget. -->
+        <activity
+            android:name=".TypeActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:windowSoftInputMode="stateVisible|adjustResize" />
+
         <receiver
             android:name=".ReviewWidgetReceiver"
             android:exported="true"

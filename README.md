@@ -25,6 +25,13 @@ its front shows the word alone, without the sentence; its back, the
 translation and the form of its level (`schovám se`, "I'll hide"), spoken
 as it flips unless muted; 🗣 says it again.
 
+From level 3 the word is typed: the front shows its translation, word type
+and gender, and an underscore for each letter, one of them given (spaces
+are given too). Tapped, it opens a screen to type the word on the keyboard.
+The exact word, accents included (case and spaces aside), succeeds as soon
+as it is typed: it turns green, is spoken, and the screen closes. Fail
+shows the word and speaks it; the card comes back later in the session.
+
 It comes in two versions sharing one review session: one for the home screen,
 and one for the Galaxy Z Flip's cover screen (Flex Window), which Samsung
 requires to be a keyguard widget of at least 352×339 dp with a
@@ -197,8 +204,11 @@ starting at 10 minutes: a success multiplies the card's gap by its ease × 1.3
 and lowers the ease. A noun or verb whose gap would go over 7 days moves
 up to level 2, where its back teaches a form of the word (a verb's 1st
 person singular, a noun's accusative singular) and the review starts again
-from 10 minutes and the first ease; cards never move down. There is room
-for more levels: a card moves up to a level once it has a form for it.
+from 10 minutes and the first ease; cards never move down. The same way,
+a level 2 noun or verb moves up to level 3, where the word is typed from
+its translation (no form needed: the answer is the dictionary form). There
+is room for more levels: a card moves up to a level once it has a form for
+it.
 There is one card per dictionary
 form; each word read in a game is a sighting of its card (form, sentence,
 translations), so `král` and `králem` make one card with two sightings. It runs on taillandier.io and only

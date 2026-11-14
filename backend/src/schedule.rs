@@ -15,6 +15,12 @@ const MIN_EASE: f64 = 1.3;
 const START_EASE: f64 = 2.5;
 /// A success making the gap longer than this moves the card up a level.
 const LEVEL_UP_GAP_DAYS: f64 = 7.0;
+/// The level where the word is typed, from its translation: nouns and verbs
+/// move up to it from their level 2. It needs no form, the word is the
+/// dictionary form.
+pub const TYPED_LEVEL: i16 = 3;
+/// Parts of speech that move up to [`TYPED_LEVEL`].
+pub const TYPED_POS: [&str; 2] = ["noun", "verb"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CardState {
@@ -135,6 +141,19 @@ mod tests {
         // 10 min × 2.5 × 1.3: from 10 minutes, not from the second gap.
         let (_, due) = card.review(Rating::Succeeded, at(), true);
         assert_eq!(due, at() + Duration::seconds(1950));
+    }
+
+    #[test]
+    fn a_level_two_card_moves_up_to_the_typed_level() {
+        let mut card = CardState {
+            level: 2,
+            ..new_card()
+        };
+        while card.level == 2 {
+            card = card.review(Rating::Succeeded, at(), true).0;
+        }
+        assert_eq!(card.level, TYPED_LEVEL);
+        assert_eq!(card.interval_days, MIN_GAP_DAYS);
     }
 
     #[test]

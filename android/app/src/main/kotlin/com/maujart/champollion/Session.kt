@@ -52,6 +52,11 @@ data class Session(
     val syncError: String? = null,
     /** The last rating or flag, while it can be taken back. */
     val last: Last? = null,
+    /**
+     * Chooses the letter given of a typed card (level 3), so the widget and
+     * the typing screen give the same; drawn again after each rating.
+     */
+    val typingSeed: Long = 0,
 ) {
     /** The card shown: the first in the queue, which is in random order. */
     fun current(): Card? =
@@ -105,6 +110,7 @@ data class Session(
             flipped = false,
             pending = pending + review,
             last = Last(card, review = review.id),
+            typingSeed = random.nextLong(),
         )
     }
 

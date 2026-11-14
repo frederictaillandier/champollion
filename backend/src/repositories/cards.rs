@@ -4,7 +4,7 @@ use champollion_api::NewCard;
 use chrono::{DateTime, Utc};
 use sqlx::PgConnection;
 
-use crate::schedule::CardState;
+use crate::schedule::{CardState, TYPED_LEVEL, TYPED_POS};
 
 /// A card of a session, without its sightings.
 #[derive(sqlx::FromRow)]
@@ -117,18 +117,22 @@ pub async fn new_count(conn: &mut PgConnection) -> Result<i64, sqlx::Error> {
 }
 
 /// The card's review state, locked until the end of the transaction, and
-/// whether it has a form for the level above. None if there is no such card.
+/// whether it has a level above: a form for it, or the typed level for a noun
+/// or verb just under it. None if there is no such card.
 pub async fn lock_state(
     conn: &mut PgConnection,
     id: i64,
 ) -> Result<Option<(CardState, bool)>, sqlx::Error> {
     let row: Option<StateRow> = sqlx::query_as(
         "SELECT interval_days, ease, reps, lapses, level,
-            EXISTS (SELECT 1 FROM card_forms f WHERE f.card_id = c.id AND f.level = c.level + 1)
+            (EXISTS (SELECT 1 FROM card_forms f WHERE f.card_id = c.id AND f.level = c.level + 1)
+                OR (c.level + 1 = $2 AND c.pos = ANY($3)))
                 AS next_level
         FROM cards c WHERE id = $1 FOR UPDATE OF c",
     )
     .bind(id)
+    .bind(TYPED_LEVEL)
+    .bind(&TYPED_POS[..])
     .fetch_optional(conn)
     .await?;
     Ok(row.map(|r| {

@@ -20,6 +20,7 @@ import androidx.glance.LocalContext
 import androidx.glance.action.Action
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
+import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
@@ -68,6 +69,7 @@ object SessionStateDefinition : GlanceStateDefinition<Session> {
  * A flashcard: the word and the sentence it was read in; tapped, its
  * translation and meaning there, with buttons to rate it. Above level 1, the
  * word alone; tapped, its translation and the form of its level, spoken.
+ * From level 3, its translation; tapped, a screen to type the word.
  */
 class ReviewWidget : GlanceAppWidget() {
     override val stateDefinition = SessionStateDefinition
@@ -151,6 +153,7 @@ private fun Content(session: Session) {
         when {
             card == null || colors == null -> Empty(session)
             session.flipped -> Back(card, colors, session.muted)
+            Typing.isTyped(card) -> TypedFront(card, colors, session)
             else -> Front(card, colors, session.canUndo())
         }
     }
@@ -225,6 +228,58 @@ private fun ColumnScope.Front(card: Card, colors: CardColors, canUndo: Boolean) 
                     modifier = GlanceModifier.width(64.dp),
                 )
             }
+        }
+    }
+}
+
+/** A card to type: its translation and the letters to find, one given. */
+@Composable
+private fun ColumnScope.TypedFront(card: Card, colors: CardColors, session: Session) {
+    val hint = Typing.hintIndex(card.lemma, session.typingSeed)
+    Column(
+        modifier = GlanceModifier
+            .defaultWeight()
+            .fillMaxWidth()
+            .clickable(actionStartActivity<TypeActivity>()),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = grammar(card),
+            style = TextStyle(color = colors.muted, fontSize = 12.sp),
+        )
+        Text(
+            text = card.translation,
+            maxLines = 2,
+            style = TextStyle(
+                color = colors.text,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            ),
+        )
+        Spacer(GlanceModifier.height(8.dp))
+        Text(
+            text = Typing.pattern(card.lemma, hint, ""),
+            style = TextStyle(
+                color = colors.text,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            ),
+        )
+        Spacer(GlanceModifier.height(8.dp))
+        Text(
+            text = "Tap to type the word",
+            style = TextStyle(color = colors.muted, fontSize = 11.sp),
+        )
+    }
+    if (session.canUndo()) {
+        Row(
+            modifier = GlanceModifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            UndoButton()
         }
     }
 }
@@ -470,10 +525,14 @@ class UndoAction : ActionCallback {
     }
 }
 
-/** Says the current card's word again, muted or not: it was asked for. */
+/**
+ * Says the current card's word again, muted or not: it was asked for. Not a
+ * card to type, whose word is the answer.
+ */
 class SpeakAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        context.session.data.first().current()?.let { Pronunciations.play(context, it) }
+        val card = context.session.data.first().current() ?: return
+        if (!Typing.isTyped(card)) Pronunciations.play(context, card)
     }
 }
 
@@ -494,11 +553,13 @@ class MuteAction : ActionCallback {
 
 /**
  * Says the word of the card now shown, unless muted. Only after a tap: the
- * first card of a session, shown by a sync, stays silent.
+ * first card of a session, shown by a sync, stays silent. A card to type
+ * stays silent too: its word is the answer, said once it is typed or failed.
  */
 private suspend fun speak(context: Context, session: Session) {
     if (session.muted) return
-    session.current()?.let { Pronunciations.play(context, it) }
+    val card = session.current() ?: return
+    if (!Typing.isTyped(card)) Pronunciations.play(context, card)
 }
 
 class RefreshAction : ActionCallback {

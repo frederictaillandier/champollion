@@ -1,6 +1,7 @@
 package com.maujart.champollion
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import kotlin.random.Random
 import org.junit.Test
 
@@ -166,6 +167,12 @@ class SessionTest {
     fun readsASessionSavedWithTheOldDelays() {
         val saved = """{"queue":[{"cardId":1,"showAfter":1600000}]}"""
         assertEquals(listOf(Queued(1)), json.decodeFromString<Session>(saved).queue)
+    }
+
+    @Test
+    fun theTypingHintChangesAfterEachRating() {
+        val session = Session().merge(listOf(card(1), card(2)))
+        assertTrue(session.typingSeed != session.rate(Rating.Failed, now).typingSeed)
     }
 
     @Test
