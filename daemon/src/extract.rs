@@ -212,6 +212,13 @@ impl Context {
             let game = games
                 .entry(video.game.clone())
                 .or_insert_with(|| GameText::load(self.config.text_dir.join(&video.game)));
+            // A recording that failed as it started leaves an empty file,
+            // which the Jetson's reader waits on forever.
+            if fs::metadata(&video.path).is_ok_and(|m| m.len() == 0) {
+                tracing::info!("skipping {}, it is empty", video.id);
+                game.append("processed.txt", &format!("{}\tskipped: empty\n", video.id));
+                continue;
+            }
             if !unreachable {
                 tracing::info!("reading text from {}", video.id);
             }
