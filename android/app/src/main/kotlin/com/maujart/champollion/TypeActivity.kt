@@ -109,6 +109,22 @@ class TypeActivity : Activity() {
         typed("")
 
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        showKeyboard()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) showKeyboard()
+    }
+
+    /**
+     * Focuses the input with the keyboard open, so the word can be typed at
+     * once. The keyboard only opens for a window with focus, which this one
+     * may not have yet when the card is shown, so it is asked again when it
+     * gets it.
+     */
+    private fun showKeyboard() {
+        if (!::input.isInitialized || answered || !hasWindowFocus()) return
         input.requestFocus()
         input.post {
             getSystemService(InputMethodManager::class.java)
