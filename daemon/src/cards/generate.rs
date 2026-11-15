@@ -66,10 +66,14 @@ calls out to him\").
 verb, the 1st person singular of its present tense, with its reflexive \
 pronoun (\"schovat se\" → \"schovám se\", \"jít\" → \"jdu\"); for a noun, \
 its accusative singular (\"rána\" → \"ránu\", \"štít\" → \"štít\"), or plural \
-for a noun only used in the plural. Empty for the other parts of speech.
+for a noun only used in the plural; for an adjective, its feminine \
+nominative singular (\"dobrý\" → \"dobrá\", \"rád\" → \"ráda\"), empty when it \
+is the lemma itself (\"jarní\", \"fajn\"). Empty for the other parts of speech.
 - form_translation: the form in English: for a verb, with \"I\", in the \
 future for a perfective verb (\"schovám se\" → \"I'll hide\", \"jdu\" → \
-\"I go\"); for a noun, its translation. Empty without a form.
+\"I go\"); for a noun, its translation; for an adjective, its translation \
+followed by \"(feminine)\" (\"dobrá\" → \"good (feminine)\"). Empty without a \
+form.
 - keep: false only for words not worth learning as Czech vocabulary: other \
 languages (English UI text), OCR garbage, names of people and places, \
 numbers. Colloquial and archaic Czech forms are real words: keep them.
@@ -188,9 +192,13 @@ struct Answer {
 
 impl Answer {
     /// The forms of the card above level 1: its level 2 form, if it has one.
+    /// An adjective's is its feminine, which teaches nothing when it is the
+    /// lemma itself (soft adjectives such as `jarní`).
     fn forms(&self) -> Vec<CardForm> {
         let form = self.form.trim();
-        if form.is_empty() || !matches!(self.pos.as_str(), "noun" | "verb") {
+        let same = self.pos == "adjective" && form == self.lemma.trim();
+        if form.is_empty() || same || !matches!(self.pos.as_str(), "noun" | "verb" | "adjective")
+        {
             return Vec::new();
         }
         vec![CardForm {
@@ -441,6 +449,32 @@ mod tests {
         );
         assert_eq!(sentence("Shodit žebřík", &word), "ho shod.");
         assert_eq!(sentence("", &word), "ho shod.");
+    }
+
+    fn answer(pos: &str, lemma: &str, form: &str) -> Answer {
+        Answer {
+            id: 0,
+            keep: true,
+            lemma: lemma.into(),
+            pos: pos.into(),
+            gender: String::new(),
+            translation: String::new(),
+            definition: String::new(),
+            sentence: String::new(),
+            sentence_translation: String::new(),
+            form: form.into(),
+            form_translation: String::new(),
+        }
+    }
+
+    #[test]
+    fn an_adjective_learns_its_feminine_at_level_two() {
+        let forms = answer("adjective", "dobrý", "dobrá").forms();
+        assert_eq!(forms.len(), 1);
+        assert_eq!((forms[0].level, forms[0].form.as_str()), (2, "dobrá"));
+        // A soft adjective's feminine is the lemma: nothing to learn.
+        assert!(answer("adjective", "jarní", "jarní").forms().is_empty());
+        assert!(answer("adverb", "rychle", "rychleji").forms().is_empty());
     }
 
     #[test]
