@@ -68,13 +68,24 @@ pronoun (\"schovat se\" → \"schovám se\", \"jít\" → \"jdu\"); for a noun, 
 its accusative singular (\"rána\" → \"ránu\", \"štít\" → \"štít\"), or plural \
 for a noun only used in the plural; for an adjective, its feminine \
 nominative singular (\"dobrý\" → \"dobrá\", \"rád\" → \"ráda\"), the lemma \
-itself when it does not change (\"jarní\" → \"jarní\", \"fajn\" → \"fajn\"). \
-Empty for the other parts of speech.
+itself when it does not change (\"jarní\" → \"jarní\", \"fajn\" → \"fajn\"); \
+for an adverb, its comparative (\"rychle\" → \"rychleji\", \"dobře\" → \
+\"lépe\"), the adverb itself when it has none (\"proč\" → \"proč\"); for a \
+pronoun, its accusative, masculine animate when it has a gender (\"my\" → \
+\"nás\", \"ten\" → \"toho\", \"co\" → \"co\"); for a numeral, its genitive \
+(\"dva\" → \"dvou\", \"pět\" → \"pěti\"); for a preposition, a short phrase \
+with the case it usually takes (\"bez\" → \"bez cukru\", \"na\" → \"na \
+stole\"). Empty for the other parts of speech.
 - form_translation: the form in English: for a verb, with \"I\", in the \
 future for a perfective verb (\"schovám se\" → \"I'll hide\", \"jdu\" → \
 \"I go\"); for a noun, its translation; for an adjective, its translation \
-followed by \"(feminine)\" (\"dobrá\" → \"good (feminine)\"). Empty without a \
-form.
+followed by \"(feminine)\" (\"dobrá\" → \"good (feminine)\"); for an \
+adverb, its comparative's translation (\"faster\"), or the adverb's without \
+one; for a pronoun, the English object form or the translation followed by \
+\"(accusative)\" (\"nás\" → \"us\", \"toho\" → \"that (accusative)\"); for a \
+numeral, its translation followed by \"(genitive)\"; for a preposition, the \
+phrase's translation followed by the case (\"bez cukru\" → \"without sugar \
+(+ genitive)\"). Empty without a form.
 - keep: false only for words not worth learning as Czech vocabulary: other \
 languages (English UI text), OCR garbage, names of people and places, \
 numbers. Colloquial and archaic Czech forms are real words: keep them.
@@ -171,6 +182,11 @@ fn sentence(answer: &str, word: &Word) -> String {
     }
 }
 
+/// Parts of speech with a level 2 form; conjunctions, particles and
+/// interjections never change.
+const LEVELLED_POS: [&str; 7] =
+    ["noun", "verb", "adjective", "adverb", "pronoun", "numeral", "preposition"];
+
 #[derive(Deserialize)]
 struct Answer {
     id: usize,
@@ -193,12 +209,12 @@ struct Answer {
 
 impl Answer {
     /// The forms of the card above level 1: its level 2 form, if it has one.
-    /// An adjective's is its feminine, even when it is the lemma itself (soft
-    /// adjectives such as `jarní`), so every adjective reaches level 2 and
-    /// then the typed level.
+    /// Words that change have one even when it is the lemma itself (a soft
+    /// adjective's feminine, `jarní`; an adverb without a comparative), so
+    /// they all reach level 2 and then the typed level.
     fn forms(&self) -> Vec<CardForm> {
         let form = self.form.trim();
-        if form.is_empty() || !matches!(self.pos.as_str(), "noun" | "verb" | "adjective") {
+        if form.is_empty() || !LEVELLED_POS.contains(&self.pos.as_str()) {
             return Vec::new();
         }
         vec![CardForm {
@@ -474,7 +490,9 @@ mod tests {
         assert_eq!((forms[0].level, forms[0].form.as_str()), (2, "dobrá"));
         // A soft adjective's feminine is the lemma, and still a level 2.
         assert_eq!(answer("adjective", "jarní", "jarní").forms()[0].form, "jarní");
-        assert!(answer("adverb", "rychle", "rychleji").forms().is_empty());
+        assert_eq!(answer("adverb", "rychle", "rychleji").forms()[0].form, "rychleji");
+        assert_eq!(answer("preposition", "bez", "bez cukru").forms()[0].form, "bez cukru");
+        assert!(answer("conjunction", "ale", "ale").forms().is_empty());
     }
 
     #[test]

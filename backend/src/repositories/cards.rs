@@ -118,7 +118,7 @@ pub async fn new_count(conn: &mut PgConnection) -> Result<i64, sqlx::Error> {
 
 /// The card's review state, locked until the end of the transaction, and
 /// whether it has a level above: a form for it, or the typed level for a
-/// noun, verb or adjective just under it. None if there is no such card.
+/// card of a part of speech in [`TYPED_POS`] just under it. None if there is no such card.
 pub async fn lock_state(
     conn: &mut PgConnection,
     id: i64,

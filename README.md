@@ -201,13 +201,16 @@ gst-launch-1.0 filesrc location=22-24-25_000.mkv ! decodebin ! videoconvert \
 and schedules their review like Anki (SM-2), but with two ratings and gaps
 starting at 10 minutes: a success multiplies the card's gap by its ease × 1.3
 (10 min, 35 min, 2 h, 8 h, 1.3 days…), a failure brings it back to 10 minutes
-and lowers the ease. A noun, verb or adjective whose gap would go over 7
-days moves up to level 2, where its back teaches a form of the word (a
-verb's 1st person singular, a noun's accusative singular, an adjective's
-feminine: `dobrý` → `dobrá`, or the same word when it does not change,
-`jarní`) and the review starts again
+and lowers the ease. A card whose gap would go over 7 days moves up to
+level 2, where its back teaches a form of the word: a verb's 1st person
+singular, a noun's accusative singular, an adjective's feminine (`dobrý` →
+`dobrá`), an adverb's comparative (`rychle` → `rychleji`), a pronoun's
+accusative (`my` → `nás`), a numeral's genitive (`dva` → `dvou`), a
+preposition's case in a short phrase (`bez` → `bez cukru`), or the same
+word when it has no such form (`jarní`, `proč`). Conjunctions, particles
+and interjections never change and stay at level 1. The review starts again
 from 10 minutes and the first ease; cards never move down. The same way,
-a level 2 noun, verb or adjective moves up to level 3, where the word is typed from
+a level 2 card moves up to level 3, where the word is typed from
 its translation (no form needed: the answer is the dictionary form). There
 is room for more levels: a card moves up to a level once it has a form for
 it.
