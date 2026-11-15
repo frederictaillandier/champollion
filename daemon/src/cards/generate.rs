@@ -67,8 +67,9 @@ verb, the 1st person singular of its present tense, with its reflexive \
 pronoun (\"schovat se\" → \"schovám se\", \"jít\" → \"jdu\"); for a noun, \
 its accusative singular (\"rána\" → \"ránu\", \"štít\" → \"štít\"), or plural \
 for a noun only used in the plural; for an adjective, its feminine \
-nominative singular (\"dobrý\" → \"dobrá\", \"rád\" → \"ráda\"), empty when it \
-is the lemma itself (\"jarní\", \"fajn\"). Empty for the other parts of speech.
+nominative singular (\"dobrý\" → \"dobrá\", \"rád\" → \"ráda\"), the lemma \
+itself when it does not change (\"jarní\" → \"jarní\", \"fajn\" → \"fajn\"). \
+Empty for the other parts of speech.
 - form_translation: the form in English: for a verb, with \"I\", in the \
 future for a perfective verb (\"schovám se\" → \"I'll hide\", \"jdu\" → \
 \"I go\"); for a noun, its translation; for an adjective, its translation \
@@ -192,13 +193,12 @@ struct Answer {
 
 impl Answer {
     /// The forms of the card above level 1: its level 2 form, if it has one.
-    /// An adjective's is its feminine, which teaches nothing when it is the
-    /// lemma itself (soft adjectives such as `jarní`).
+    /// An adjective's is its feminine, even when it is the lemma itself (soft
+    /// adjectives such as `jarní`), so every adjective reaches level 2 and
+    /// then the typed level.
     fn forms(&self) -> Vec<CardForm> {
         let form = self.form.trim();
-        let same = self.pos == "adjective" && form == self.lemma.trim();
-        if form.is_empty() || same || !matches!(self.pos.as_str(), "noun" | "verb" | "adjective")
-        {
+        if form.is_empty() || !matches!(self.pos.as_str(), "noun" | "verb" | "adjective") {
             return Vec::new();
         }
         vec![CardForm {
@@ -472,8 +472,8 @@ mod tests {
         let forms = answer("adjective", "dobrý", "dobrá").forms();
         assert_eq!(forms.len(), 1);
         assert_eq!((forms[0].level, forms[0].form.as_str()), (2, "dobrá"));
-        // A soft adjective's feminine is the lemma: nothing to learn.
-        assert!(answer("adjective", "jarní", "jarní").forms().is_empty());
+        // A soft adjective's feminine is the lemma, and still a level 2.
+        assert_eq!(answer("adjective", "jarní", "jarní").forms()[0].form, "jarní");
         assert!(answer("adverb", "rychle", "rychleji").forms().is_empty());
     }
 

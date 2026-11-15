@@ -15,12 +15,12 @@ const MIN_EASE: f64 = 1.3;
 const START_EASE: f64 = 2.5;
 /// A success making the gap longer than this moves the card up a level.
 const LEVEL_UP_GAP_DAYS: f64 = 7.0;
-/// The level where the word is typed, from its translation: nouns and verbs
-/// move up to it from their level 2. It needs no form, the word is the
-/// dictionary form.
+/// The level where the word is typed, from its translation: nouns, verbs and
+/// adjectives move up to it from their level 2. It needs no form, the word
+/// is the dictionary form.
 pub const TYPED_LEVEL: i16 = 3;
 /// Parts of speech that move up to [`TYPED_LEVEL`].
-pub const TYPED_POS: [&str; 2] = ["noun", "verb"];
+pub const TYPED_POS: [&str; 3] = ["noun", "verb", "adjective"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CardState {

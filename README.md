@@ -204,10 +204,10 @@ starting at 10 minutes: a success multiplies the card's gap by its ease × 1.3
 and lowers the ease. A noun, verb or adjective whose gap would go over 7
 days moves up to level 2, where its back teaches a form of the word (a
 verb's 1st person singular, a noun's accusative singular, an adjective's
-feminine: `dobrý` → `dobrá`; a soft adjective such as `jarní`, whose
-feminine is the same, stays at level 1) and the review starts again
+feminine: `dobrý` → `dobrá`, or the same word when it does not change,
+`jarní`) and the review starts again
 from 10 minutes and the first ease; cards never move down. The same way,
-a level 2 noun or verb moves up to level 3, where the word is typed from
+a level 2 noun, verb or adjective moves up to level 3, where the word is typed from
 its translation (no form needed: the answer is the dictionary form). There
 is room for more levels: a card moves up to a level once it has a form for
 it.
